@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BookLand</title>
+    <!-- Vue.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2"></script>
+    <!-- Axios CDN for HTTP requests -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+<div id="app">
+    <h1>BookLand</h1>
+    
+    <h2>Upload Book (PDF)</h2>
+    <input type="file" @change="handleBookUpload">
+    <button @click="uploadBook">Upload Book</button>
+    
+    <h2>Upload Video</h2>
+    <input type="file" @change="handleVideoUpload">
+    <button @click="uploadVideo">Upload Video</button>
+    
+    <h2>Flashcards</h2>
+    <button @click="fetchFlashcards">Refresh Flashcards</button>
+    <ul>
+        <li v-for="flashcard in flashcards" :key="flashcard.id">
+            {{ flashcard.word }} - {{ flashcard.translation }}
+        </li>
+    </ul>
+</div>
+
+<script>
+new Vue({
+    el: '#app',
+    data: {
+        bookFile: null,
+        videoFile: null,
+        flashcards: []
+    },
+    methods: {
+        handleBookUpload(event) {
+            this.bookFile = event.target.files[0];
+        },
+        handleVideoUpload(event) {
+            this.videoFile = event.target.files[0];
+        },
+        uploadBook() {
+            if (!this.bookFile) {
+                alert("Please select a book file.");
+                return;
+            }
+            let formData = new FormData();
+            formData.append("file", this.bookFile);
+            axios.post("http://localhost:8000/api/upload/book/", formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            })
+            .then(response => {
+                alert(response.data.message);
+                this.fetchFlashcards();
+            })
+            .catch(error => {
+                console.error(error);
+            });
+        },
+        uploadVideo() {
+            if (!this.videoFile) {
+                alert("Please select a video file.");
+                return;
+            }
+            let formData = new FormData();
+            formData.append("file", this.videoFile);
+            axios.post("http://localhost:8000/api/upload/video/", formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            })
+            .then(response => {
+                alert(response.data.message);
+                this.fetchFlashcards();
+            })
+            .catch(error => {
+                console.error(error);
+            });
+        },
+        fetchFlashcards() {
+            axios.get("http://localhost:8000/api/flashcards/")
+            .then(response => {
+                this.flashcards = response.data;
+            })
+            .catch(error => {
+                console.error(error);
+            });
+        }
+    },
+    created() {
+        this.fetchFlashcards();
+    }
+});
+</script>
+</body>
+</html> 
