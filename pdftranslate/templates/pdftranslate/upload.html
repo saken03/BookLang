@@ -1,0 +1,99 @@
+{% extends 'pdftranslate/base.html' %}
+
+{% block title %}Upload PDF - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card document-card">
+            <div class="card-header bg-white">
+                <h2 class="text-center mb-0">
+                    <i class="bi bi-cloud-upload"></i> Upload PDF
+                </h2>
+            </div>
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" id="uploadForm" class="upload-form">
+                    {% csrf_token %}
+                    <div class="upload-zone" id="dropZone">
+                        <i class="bi bi-file-earmark-pdf display-4 text-primary mb-3"></i>
+                        <h4>Drag and drop your PDF here</h4>
+                        <p class="text-muted">or</p>
+                        <div class="mb-3">
+                            <input type="file" class="form-control" id="pdf_file" name="pdf_file" 
+                                   accept=".pdf" required style="display: none;">
+                            <button type="button" class="btn btn-primary" onclick="document.getElementById('pdf_file').click()">
+                                Choose File
+                            </button>
+                        </div>
+                        <div id="fileInfo" class="mt-3" style="display: none;">
+                            <p class="text-success">
+                                <i class="bi bi-check-circle"></i> 
+                                Selected file: <span id="fileName"></span>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="text-center mt-4">
+                        <button type="submit" class="btn btn-primary btn-lg" id="uploadButton">
+                            <span class="spinner-border spinner-border-sm loading-spinner" role="status"></span>
+                            Upload and Translate
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('pdf_file');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const uploadForm = document.getElementById('uploadForm');
+
+    // Drag and drop handlers
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-primary');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-primary');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-primary');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type === 'application/pdf') {
+            fileInput.files = files;
+            updateFileInfo(files[0]);
+        }
+    });
+
+    // File input change handler
+    fileInput.addEventListener('change', (e) => {
+        if (fileInput.files.length > 0) {
+            updateFileInfo(fileInput.files[0]);
+        }
+    });
+
+    function updateFileInfo(file) {
+        fileName.textContent = file.name;
+        fileInfo.style.display = 'block';
+    }
+
+    // Form submit handler
+    uploadForm.addEventListener('submit', (e) => {
+        const submitButton = document.getElementById('uploadButton');
+        submitButton.disabled = true;
+        uploadForm.classList.add('uploading');
+    });
+});
+</script>
+{% endblock %} 
