@@ -1,0 +1,106 @@
+{% extends 'pdftranslate/base.html' %}
+
+{% block title %}Flashcards - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Header with Actions -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-0">Flashcards</h1>
+            <p class="text-muted mb-0">You have {{ cards_due }} cards due for review.</p>
+        </div>
+        <div>
+            {% if cards_due > 0 %}
+                <a href="{% url 'flashcard_review' %}" class="btn btn-primary me-2">Start Review</a>
+            {% endif %}
+            <a href="{% url 'upload_pdf' %}" class="btn btn-success">
+                <i class="bi bi-upload"></i> Upload Document
+            </a>
+        </div>
+    </div>
+
+    <!-- Basic Stats -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <p>Total Cards: {{ total_cards }}</p>
+        </div>
+        <div class="col-md-4">
+            <p>Cards Learned: {{ cards_learned }}</p>
+        </div>
+        <div class="col-md-4">
+            <p>Due for Review: {{ cards_due }}</p>
+        </div>
+    </div>
+
+    <!-- Flashcards by Document -->
+    {% if flashcards %}
+        {% regroup flashcards by word_entry.document as document_list %}
+        
+        {% for document in document_list %}
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ document.grouper.title }}</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>English</th>
+                                    <th>Russian</th>
+                                    <th>Page</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for card in document.list %}
+                                <tr>
+                                    <td>{{ card.word_entry.original_text }}</td>
+                                    <td>{{ card.word_entry.translated_text }}</td>
+                                    <td>{{ card.word_entry.page_number }}</td>
+                                    <td>
+                                        <a href="{% url 'flashcard_review' card.pk %}" class="btn btn-sm btn-primary">Review</a>
+                                        <button onclick="resetCard({{ card.pk }})" class="btn btn-sm btn-warning">Reset</button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="text-center py-5">
+            <p class="text-muted mb-3">No flashcards available for review.</p>
+            <p class="mb-0">Get started by uploading a document to create flashcards.</p>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function resetCard(cardId) {
+    if (confirm('Reset this card?')) {
+        fetch(`/flashcards/${cardId}/reset/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            },
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Failed to reset card.');
+            }
+        })
+        .catch(error => {
+            alert('Error resetting card.');
+        });
+    }
+}
+</script>
+{% endblock %} 
