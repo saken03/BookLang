@@ -37,6 +37,25 @@ class PDFDocument(models.Model):
     class Meta:
         ordering = ['-uploaded_at']
 
+    def create_all_flashcards(self, user):
+        created_count = 0
+        for word in self.words.all():
+            if word.translated_text and not word.has_flashcard:
+                word.create_flashcard(user)
+                created_count += 1
+        return created_count
+
+    @property
+    def flashcard_count(self):
+        return self.words.filter(flashcard__isnull=False).count()
+
+    @property
+    def available_words(self):
+        return self.words.filter(
+            translated_text__isnull=False,
+            flashcard__isnull=True
+        )
+
 
 class WordEntry(models.Model):
     document = models.ForeignKey(PDFDocument, on_delete=models.CASCADE, related_name='words')
@@ -53,8 +72,28 @@ class WordEntry(models.Model):
     def __str__(self):
         return f"{self.original_text} -> {self.translated_text}"
 
+    def create_flashcard(self, user):
+        if not hasattr(self, 'flashcard'):
+            from .models import Flashcard
+            flashcard = Flashcard.objects.create(
+                word_entry=self,
+                user=user
+            )
+            return flashcard
+        return self.flashcard
+
+    @property
+    def has_flashcard(self):
+        return hasattr(self, 'flashcard')
+
 
 class Flashcard(models.Model):
+    INTERVAL_CHOICES = [
+        ('again', '<10m'),
+        ('hard', '<15m'),
+        ('good', '1d'),
+        ('easy', '2d'),
+    ]
 
     word_entry = models.OneToOneField(
         WordEntry,
@@ -78,6 +117,12 @@ class Flashcard(models.Model):
     review_count = models.IntegerField(
         default=0,
         help_text='Number of successful reviews'
+    )
+    interval = models.CharField(
+        max_length=10,
+        choices=INTERVAL_CHOICES,
+        default='good',
+        help_text='Current review interval'
     )
 
     class Meta:
@@ -111,9 +156,10 @@ class Flashcard(models.Model):
 
         if remembered:
             self.review_count += 1
+            self.interval = 'good'  
         else:
-            # Decrease review count but don't go below 0
             self.review_count = max(0, self.review_count - 1)
+            self.interval = 'again'  
 
         # Calculate next review date
         interval_days = self.calculate_next_interval(remembered)
@@ -140,4 +186,5 @@ class Flashcard(models.Model):
         self.last_reviewed = None
         self.next_review = timezone.now()
         self.review_count = 0
+        self.interval = 'good'  # Reset to standard interval
         self.save()
