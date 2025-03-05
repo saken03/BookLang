@@ -210,9 +210,32 @@ def flashcard_review(request, pk=None):
             user=request.user
         )
         
-        # Update flashcard based on user's response
+        # Get the interval and determine if remembered
+        interval = request.POST.get('interval', 'good')
         remembered = request.POST.get('remembered', '').lower() == 'true'
-        flashcard.update_schedule(remembered)
+        
+        # Calculate next review time based on interval
+        if interval == 'again':
+            next_review = now + timedelta(minutes=10)
+            remembered = False
+        elif interval == 'hard':
+            next_review = now + timedelta(minutes=15)
+            remembered = False
+        elif interval == 'good':
+            next_review = now + timedelta(days=1)
+            remembered = True
+        else:  # easy
+            next_review = now + timedelta(days=2)
+            remembered = True
+        
+        # Update flashcard
+        flashcard.last_reviewed = now
+        flashcard.next_review = next_review
+        if remembered:
+            flashcard.review_count += 1
+        else:
+            flashcard.review_count = max(0, flashcard.review_count - 1)
+        flashcard.save()
         
         # Show appropriate message
         if remembered:
@@ -223,7 +246,7 @@ def flashcard_review(request, pk=None):
         else:
             messages.info(
                 request,
-                'Keep practicing! This card will be reviewed again tomorrow.'
+                'Keep practicing! This card will be reviewed again soon.'
             )
         
         # Find the next card to review
@@ -264,33 +287,35 @@ def flashcard_review(request, pk=None):
         user=request.user,
         last_reviewed__date=now.date()
     ).count()
+    cards_remaining_today = max(0, total_due - reviewed_today)
     
     context = {
         'flashcard': flashcard,
         'total_due': total_due,
         'reviewed_today': reviewed_today,
+        'cards_remaining_today': cards_remaining_today,
     }
     return render(request, 'pdftranslate/flashcard_review.html', context)
 
 @login_required
 def create_flashcards(request, document_id):
-    """Create flashcards for all words in a document."""
+    """Create flashcards for all translated words in a document."""
     document = get_object_or_404(PDFDocument, pk=document_id, user=request.user)
-    created_count = 0
     
-    # Create flashcards for words that don't have them
-    for word in document.words.all():
-        if not hasattr(word, 'flashcard'):
-            Flashcard.objects.create(
-                word_entry=word,
-                user=request.user
-            )
-            created_count += 1
+    # Create flashcards using the new method
+    created_count = document.create_all_flashcards(request.user)
     
-    messages.success(
-        request,
-        f'Created {created_count} new flashcards from "{document.title}"'
-    )
+    if created_count > 0:
+        messages.success(
+            request,
+            f'Created {created_count} new flashcards from "{document.title}"'
+        )
+    else:
+        messages.info(
+            request,
+            'No new flashcards to create. All translated words already have flashcards.'
+        )
+    
     return redirect('flashcard_list')
 
 @login_required

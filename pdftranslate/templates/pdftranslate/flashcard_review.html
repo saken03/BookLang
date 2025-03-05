@@ -4,59 +4,136 @@
 
 {% block content %}
 <div class="container py-4">
-    <!-- Progress -->
-    <div class="mb-4">
-        <p>Progress: {{ reviewed_today }} / {{ total_due }} cards reviewed today</p>
-        <div class="progress">
-            <div class="progress-bar" role="progressbar" 
-                 style="width: {% widthratio reviewed_today total_due 100 %}%">
-            </div>
+    <!-- Progress Bar -->
+    <div class="progress mb-4" style="height: 2px;">
+        <div class="progress-bar" role="progressbar" 
+             style="width: {% widthratio reviewed_today total_due 100 %}%">
         </div>
     </div>
 
-    <!-- Simple Flashcard -->
-    <div class="card">
-        <div class="card-body">
+    <!-- Flashcard -->
+    <div class="card shadow-sm">
+        <div class="card-body p-5">
             <!-- Original Word -->
-            <h2 class="text-center mb-3">{{ flashcard.word_entry.original_text }}</h2>
-            
-            <!-- Source -->
-            <p class="text-muted text-center small">
-                From: {{ flashcard.word_entry.document.title }} (page {{ flashcard.word_entry.page_number }})
-            </p>
-            
-            <!-- Show/Hide Translation -->
-            <div id="translation" style="display: none;">
-                <hr>
-                <h3 class="text-center">{{ flashcard.word_entry.translated_text }}</h3>
-            </div>
-            
-            <!-- Buttons -->
-            <div class="text-center mt-3">
-                <button onclick="document.getElementById('translation').style.display='block';this.style.display='none'" 
-                        class="btn btn-primary" id="showBtn">
-                    Show Translation
-                </button>
-                
-                <form method="post" id="reviewForm" {% if not flashcard.word_entry.translated_text %}style="display: none"{% endif %}>
-                    {% csrf_token %}
-                    <input type="hidden" name="flashcard_id" value="{{ flashcard.pk }}">
-                    <div class="mt-3">
-                        <button type="submit" name="remembered" value="true" class="btn btn-success">
-                            I Remember
-                        </button>
-                        <button type="submit" name="remembered" value="false" class="btn btn-danger">
-                            Don't Remember
+            <div class="text-center mb-4">
+                <h1 class="display-4 mb-2">{{ flashcard.word_entry.original_text }}</h1>
+                {% if flashcard.word_entry.translated_text %}
+                    <div id="translation" style="display: none;">
+                        <h2 class="text-success mb-2">[{{ flashcard.word_entry.translated_text }}]</h2>
+                        <button onclick="playTranslation('{{ flashcard.word_entry.translated_text }}')" class="btn btn-link">
+                            <i class="bi bi-volume-up"></i>
                         </button>
                     </div>
-                </form>
+                {% endif %}
             </div>
+
+            <!-- Source Info -->
+            <p class="text-muted text-center small mb-4">
+                From: {{ flashcard.word_entry.document.title }} (Page {{ flashcard.word_entry.page_number }})
+            </p>
+
+            <!-- Show Answer Button -->
+            <div class="text-center mb-4">
+                <button onclick="showAnswer()" class="btn btn-primary btn-lg px-5" id="showAnswerBtn">
+                    Show Answer
+                </button>
+            </div>
+
+            <!-- Review Buttons -->
+            <form method="post" id="reviewForm" style="display: none;">
+                {% csrf_token %}
+                <input type="hidden" name="flashcard_id" value="{{ flashcard.pk }}">
+                
+                <div class="d-flex justify-content-center gap-2">
+                    <button type="submit" name="interval" value="again" class="btn btn-outline-danger" onclick="setRemembered(false)">
+                        <span class="d-block"><10m</span>
+                        <small class="d-block">Again</small>
+                    </button>
+                    
+                    <button type="submit" name="interval" value="hard" class="btn btn-outline-warning" onclick="setRemembered(false)">
+                        <span class="d-block"><15m</span>
+                        <small class="d-block">Hard</small>
+                    </button>
+                    
+                    <button type="submit" name="interval" value="good" class="btn btn-outline-success" onclick="setRemembered(true)">
+                        <span class="d-block">1d</span>
+                        <small class="d-block">Good</small>
+                    </button>
+                    
+                    <button type="submit" name="interval" value="easy" class="btn btn-outline-primary" onclick="setRemembered(true)">
+                        <span class="d-block">2d</span>
+                        <small class="d-block">Easy</small>
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 
-    <!-- Navigation -->
-    <div class="text-center mt-3">
-        <a href="{% url 'flashcard_list' %}" class="btn btn-secondary">Back to List</a>
+    <!-- Stats -->
+    <div class="text-center mt-4 text-muted">
+        <span class="me-3">New: {{ total_due }}</span>
+        <span class="me-3">Learning: {{ reviewed_today }}</span>
+        <span>Due: {{ cards_remaining_today }}</span>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showAnswer() {
+    document.getElementById('translation').style.display = 'block';
+    document.getElementById('showAnswerBtn').style.display = 'none';
+    document.getElementById('reviewForm').style.display = 'block';
+}
+
+function setRemembered(remembered) {
+    const form = document.getElementById('reviewForm');
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'remembered';
+    input.value = remembered;
+    form.appendChild(input);
+}
+
+function playTranslation(text) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ru-RU';
+    window.speechSynthesis.speak(utterance);
+}
+
+// Keyboard shortcuts
+document.addEventListener('keydown', function(e) {
+    if (document.getElementById('reviewForm').style.display === 'none') {
+        if (e.key === ' ' || e.key === 'Enter') {
+            e.preventDefault();
+            showAnswer();
+        }
+    } else {
+        switch(e.key) {
+            case '1':
+                document.querySelector('[value="again"]').click();
+                break;
+            case '2':
+                document.querySelector('[value="hard"]').click();
+                break;
+            case '3':
+                document.querySelector('[value="good"]').click();
+                break;
+            case '4':
+                document.querySelector('[value="easy"]').click();
+                break;
+        }
+    }
+});
+</script>
+
+<style>
+.btn-outline-danger:hover { background-color: #dc3545; color: white; }
+.btn-outline-warning:hover { background-color: #ffc107; color: black; }
+.btn-outline-success:hover { background-color: #28a745; color: white; }
+.btn-outline-primary:hover { background-color: #0d6efd; color: white; }
+
+.btn span { font-size: 1.2rem; }
+.btn small { font-size: 0.8rem; }
+</style>
 {% endblock %} 
