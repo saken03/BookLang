@@ -3,12 +3,13 @@
 {% block title %}PDF List - {{ block.super }}{% endblock %}
 
 {% block content %}
+{% csrf_token %}
 <div class="row">
     <div class="col-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h2 class="mb-0">PDF Documents</h2>
-                <a href="{% url 'upload_pdf' %}" class="btn btn-primary">Upload New PDF</a>
+                <h2 class="mb-0" id="pdfDocumentsTitle">PDF Documents</h2>
+                <a href="{% url 'upload_pdf' %}" class="btn btn-primary" id="uploadNewPdfBtn">Upload New PDF</a>
             </div>
             <div class="card-body">
                 {% if documents %}
@@ -16,10 +17,10 @@
                         <table class="table table-striped">
                             <thead>
                                 <tr>
-                                    <th>Title</th>
-                                    <th>Status</th>
-                                    <th>Progress</th>
-                                    <th>Actions</th>
+                                    <th id="titleHeader">Title</th>
+                                    <th id="statusHeader">Status</th>
+                                    <th id="progressHeader">Progress</th>
+                                    <th id="actionsHeader">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -31,7 +32,7 @@
                                             {% elif doc.translation_status == 'failed' %}bg-danger
                                             {% elif doc.translation_status == 'in_progress' %}bg-warning
                                             {% else %}bg-secondary{% endif %}">
-                                            {{ doc.translation_status|title }}
+                                            <span class="status-text" data-status="{{ doc.translation_status }}">{{ doc.translation_status|title }}</span>
                                         </span>
                                     </td>
                                     <td style="width: 250px;">
@@ -47,57 +48,43 @@
                                                 {{ doc.translation_progress }}%
                                             </div>
                                         </div>
-                                        <small class="text-muted" id="progress-text-{{ doc.id }}">
-                                            {% if doc.total_words > 0 %}
-                                                {{ doc.translated_words }} / {{ doc.total_words }} words
-                                            {% endif %}
+                                        <small class="text-muted" id="words-{{ doc.id }}">
+                                            {{ doc.translated_words }} / {{ doc.total_words }} words
                                         </small>
                                     </td>
                                     <td>
                                         <div class="btn-group">
-                                            <a href="{{ doc.pdf_file.url }}" class="btn btn-sm btn-info" target="_blank">
-                                                <i class="bi bi-file-pdf"></i> View PDF
+                                            <a href="{{ doc.pdf_file.url }}" class="btn btn-sm btn-info" id="viewPdfBtn-{{ doc.id }}">
+                                                <i class="bi bi-file-earmark-pdf"></i> View PDF
                                             </a>
-                                            <button class="btn btn-sm btn-primary" data-bs-toggle="collapse" 
-                                                    data-bs-target="#translations-{{ doc.id }}">
+                                            {% if doc.translation_status == 'completed' %}
+                                            <button type="button" class="btn btn-sm btn-primary" 
+                                                    data-bs-toggle="collapse" 
+                                                    data-bs-target="#translations-{{ doc.id }}" 
+                                                    aria-expanded="false" 
+                                                    aria-controls="translations-{{ doc.id }}"
+                                                    id="viewTranslationsBtn-{{ doc.id }}">
                                                 <i class="bi bi-translate"></i> View Translations
                                             </button>
-                                            {% if doc.available_words.exists %}
-                                            <a href="{% url 'create_flashcards' doc.id %}" class="btn btn-sm btn-success">
-                                                <i class="bi bi-card-text"></i> Create Flashcards 
-                                                <span class="badge bg-light text-success">{{ doc.available_words.count }}</span>
+                                            <a href="{% url 'flashcard_list' %}?deck={{ doc.id }}" 
+                                               class="btn btn-sm btn-secondary"
+                                               id="viewFlashcardsBtn-{{ doc.id }}">
+                                                <i class="bi bi-card-text"></i> View Flashcards
+                                                {% if doc.flashcard_count > 0 %}
+                                                <span class="badge bg-light text-dark">{{ doc.flashcard_count }}</span>
+                                                {% endif %}
                                             </a>
-                                            {% endif %}
-                                            {% if doc.flashcard_count > 0 %}
-                                            <a href="{% url 'flashcard_list' %}" class="btn btn-sm btn-outline-primary">
-                                                <i class="bi bi-card-list"></i> View Flashcards 
-                                                <span class="badge bg-primary">{{ doc.flashcard_count }}</span>
+                                            <a href="{% url 'flashcard_review' %}?deck={{ doc.id }}" 
+                                               class="btn btn-sm btn-success"
+                                               id="startLearningBtn-{{ doc.id }}">
+                                                <i class="bi bi-play-fill"></i> Start Learning
                                             </a>
                                             {% endif %}
                                             <button type="button" class="btn btn-sm btn-danger" 
-                                                    data-bs-toggle="modal" data-bs-target="#deleteModal{{ doc.id }}">
+                                                    onclick="deletePDF({{ doc.id }}, '{{ doc.title }}')"
+                                                    id="deleteBtn-{{ doc.id }}">
                                                 <i class="bi bi-trash"></i> Delete
                                             </button>
-                                        </div>
-
-                                        <!-- Delete Confirmation Modal -->
-                                        <div class="modal fade" id="deleteModal{{ doc.id }}" tabindex="-1">
-                                            <div class="modal-dialog">
-                                                <div class="modal-content">
-                                                    <div class="modal-header">
-                                                        <h5 class="modal-title">Confirm Deletion</h5>
-                                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                                                    </div>
-                                                    <div class="modal-body">
-                                                        Are you sure you want to delete "{{ doc.title }}"? 
-                                                        This action cannot be undone.
-                                                    </div>
-                                                    <div class="modal-footer">
-                                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                                        <a href="{% url 'delete_pdf' doc.id %}" class="btn btn-danger">Delete</a>
-                                                    </div>
-                                                </div>
-                                            </div>
                                         </div>
                                     </td>
                                 </tr>
@@ -105,7 +92,18 @@
                                     <td colspan="4" class="p-0">
                                         <div class="collapse translations-collapse" id="translations-{{ doc.id }}">
                                             <div class="card card-body m-3">
-                                                <h5>Translations</h5>
+                                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                                    <h5 class="mb-0">Translations</h5>
+                                                    {% if doc.flashcard_count > 0 %}
+                                                    <a href="{% url 'flashcard_review' %}?deck={{ doc.id }}" 
+                                                       class="btn btn-success">
+                                                        <i class="bi bi-play-fill"></i> Start Learning
+                                                        <span class="badge bg-light text-success ms-1">
+                                                            {{ doc.flashcard_count }} cards
+                                                        </span>
+                                                    </a>
+                                                    {% endif %}
+                                                </div>
                                                 {% if doc.words.all %}
                                                     <div class="table-responsive">
                                                         <table class="table table-sm translation-table">
@@ -139,7 +137,10 @@
                         </table>
                     </div>
                 {% else %}
-                    <p class="text-center">No PDF documents uploaded yet.</p>
+                    <div class="text-center py-5">
+                        <p class="text-muted mb-3" id="noPdfsMessage">No PDF documents found.</p>
+                        <p id="uploadPromptMessage">Upload a PDF to get started with translation and flashcards.</p>
+                    </div>
                 {% endif %}
             </div>
         </div>
@@ -149,123 +150,183 @@
 
 {% block extra_js %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    function updateProgress(docId) {
-        return fetch(`/progress/${docId}/`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                const progressBar = document.getElementById(`progress-${docId}`);
-                const progressText = document.getElementById(`progress-text-${docId}`);
-                const statusBadge = document.querySelector(`#progress-${docId}`).closest('tr').querySelector('.badge');
-                
-                if (!progressBar || !progressText || !statusBadge) {
-                    console.error('Required elements not found');
-                    return false;
-                }
-
-                // Animate progress bar smoothly
-                progressBar.style.transition = 'width 0.5s ease-in-out';
-                progressBar.style.width = `${data.progress}%`;
-                progressBar.setAttribute('aria-valuenow', data.progress);
-                progressBar.textContent = `${data.progress}%`;
-
-                // Update word count with animation
-                if (data.total_words > 0) {
-                    const currentWords = parseInt(progressText.getAttribute('data-words') || '0');
-                    const targetWords = data.translated_words;
-                    
-                    if (currentWords !== targetWords) {
-                        // Animate word count
-                        const duration = 500; // 500ms animation
-                        const start = performance.now();
-                        
-                        function updateWordCount(currentTime) {
-                            const elapsed = currentTime - start;
-                            const progress = Math.min(elapsed / duration, 1);
-                            
-                            const currentCount = Math.round(
-                                currentWords + (targetWords - currentWords) * progress
-                            );
-                            
-                            progressText.textContent = `${currentCount} / ${data.total_words} words`;
-                            progressText.setAttribute('data-words', currentCount);
-                            
-                            if (progress < 1) {
-                                requestAnimationFrame(updateWordCount);
-                            }
-                        }
-                        
-                        requestAnimationFrame(updateWordCount);
-                    }
-                }
-
-                // Update status badge and progress bar animation
-                let shouldContinue = true;
-                
-                switch (data.status) {
-                    case 'pending':
-                        statusBadge.className = 'badge bg-secondary';
-                        statusBadge.textContent = 'Pending';
-                        progressBar.classList.add('progress-bar-animated');
-                        break;
-                    case 'in_progress':
-                        statusBadge.className = 'badge bg-warning';
-                        statusBadge.textContent = 'In Progress';
-                        progressBar.classList.add('progress-bar-animated');
-                        break;
-                    case 'completed':
-                        statusBadge.className = 'badge bg-success';
-                        statusBadge.textContent = 'Completed';
-                        progressBar.classList.remove('progress-bar-animated');
-                        shouldContinue = false;
-                        break;
-                    case 'failed':
-                        statusBadge.className = 'badge bg-danger';
-                        statusBadge.textContent = 'Failed';
-                        progressBar.classList.remove('progress-bar-animated');
-                        shouldContinue = false;
-                        break;
-                }
-
-                return shouldContinue;
-            })
-            .catch(error => {
-                console.error('Error updating progress:', error);
-                return false;
-            });
+// Language translations for PDF list page
+const pdfListTranslations = {
+    en: {
+        pdfDocuments: 'PDF Documents',
+        uploadNewPdf: 'Upload New PDF',
+        title: 'Title',
+        status: 'Status',
+        progress: 'Progress',
+        actions: 'Actions',
+        words: 'words',
+        viewPdf: 'View PDF',
+        viewTranslations: 'View Translations',
+        viewFlashcards: 'View Flashcards',
+        startLearning: 'Start Learning',
+        delete: 'Delete',
+        noPdfs: 'No PDF documents found.',
+        uploadPrompt: 'Upload a PDF to get started with translation and flashcards.',
+        // Status translations
+        completed: 'Completed',
+        failed: 'Failed',
+        in_progress: 'In Progress',
+        pending: 'Pending'
+    },
+    ru: {
+        pdfDocuments: 'PDF Документы',
+        uploadNewPdf: 'Загрузить новый PDF',
+        title: 'Название',
+        status: 'Статус',
+        progress: 'Прогресс',
+        actions: 'Действия',
+        words: 'слов',
+        viewPdf: 'Просмотр PDF',
+        viewTranslations: 'Просмотр переводов',
+        viewFlashcards: 'Просмотр карточек',
+        startLearning: 'Начать обучение',
+        delete: 'Удалить',
+        noPdfs: 'PDF документы не найдены.',
+        uploadPrompt: 'Загрузите PDF, чтобы начать перевод и создание карточек.',
+        // Status translations
+        completed: 'Завершено',
+        failed: 'Ошибка',
+        in_progress: 'В процессе',
+        pending: 'Ожидание'
     }
+};
 
-    // Find all documents that need progress tracking
-    const documents = document.querySelectorAll('.progress-bar');
+// Apply language to PDF list page
+function applyPdfListLanguage(lang) {
+    const translations = pdfListTranslations[lang];
     
-    documents.forEach(progressBar => {
-        const docId = progressBar.id.split('-')[1];
-        const statusBadge = progressBar.closest('tr').querySelector('.badge');
-        const status = statusBadge.textContent.trim().toLowerCase();
-        
-        if (status === 'pending' || status === 'in progress') {
-            // Initial update
-            updateProgress(docId);
-            
-            // Set up polling with a shorter interval for smoother updates
-            const pollInterval = setInterval(async () => {
-                const shouldContinue = await updateProgress(docId);
-                if (!shouldContinue) {
-                    clearInterval(pollInterval);
-                }
-            }, 500); // Poll every 500ms for smoother updates
-            
-            // Clean up interval when leaving the page
-            window.addEventListener('beforeunload', () => {
-                clearInterval(pollInterval);
-            });
+    // Update page headers
+    document.getElementById('pdfDocumentsTitle').textContent = translations.pdfDocuments;
+    document.getElementById('uploadNewPdfBtn').textContent = translations.uploadNewPdf;
+    document.getElementById('titleHeader').textContent = translations.title;
+    document.getElementById('statusHeader').textContent = translations.status;
+    document.getElementById('progressHeader').textContent = translations.progress;
+    document.getElementById('actionsHeader').textContent = translations.actions;
+    
+    // Update status texts
+    document.querySelectorAll('.status-text').forEach(element => {
+        const status = element.getAttribute('data-status');
+        element.textContent = translations[status] || status;
+    });
+    
+    // Update words text
+    document.querySelectorAll('[id^="words-"]').forEach(element => {
+        const text = element.textContent;
+        const numbers = text.match(/\d+/g);
+        if (numbers && numbers.length >= 2) {
+            element.textContent = `${numbers[0]} / ${numbers[1]} ${translations.words}`;
         }
     });
+    
+    // Update buttons
+    document.querySelectorAll('[id^="viewPdfBtn-"]').forEach(btn => {
+        btn.innerHTML = `<i class="bi bi-file-earmark-pdf"></i> ${translations.viewPdf}`;
+    });
+    
+    document.querySelectorAll('[id^="viewTranslationsBtn-"]').forEach(btn => {
+        btn.innerHTML = `<i class="bi bi-translate"></i> ${translations.viewTranslations}`;
+    });
+    
+    document.querySelectorAll('[id^="viewFlashcardsBtn-"]').forEach(btn => {
+        let badgeHtml = '';
+        const badge = btn.querySelector('.badge');
+        if (badge) {
+            badgeHtml = badge.outerHTML;
+        }
+        btn.innerHTML = `<i class="bi bi-card-text"></i> ${translations.viewFlashcards} ${badgeHtml}`;
+    });
+    
+    document.querySelectorAll('[id^="startLearningBtn-"]').forEach(btn => {
+        btn.innerHTML = `<i class="bi bi-play-fill"></i> ${translations.startLearning}`;
+    });
+    
+    document.querySelectorAll('[id^="deleteBtn-"]').forEach(btn => {
+        btn.innerHTML = `<i class="bi bi-trash"></i> ${translations.delete}`;
+    });
+    
+    // Update empty state messages
+    const noPdfsMessage = document.getElementById('noPdfsMessage');
+    if (noPdfsMessage) {
+        noPdfsMessage.textContent = translations.noPdfs;
+    }
+    
+    const uploadPromptMessage = document.getElementById('uploadPromptMessage');
+    if (uploadPromptMessage) {
+        uploadPromptMessage.textContent = translations.uploadPrompt;
+    }
+}
+
+// Initialize language on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const currentLanguage = localStorage.getItem('appLanguage') || 'en';
+    applyPdfListLanguage(currentLanguage);
+});
+
+// Listen for language changes from the global language selector
+window.addEventListener('storage', function(e) {
+    if (e.key === 'appLanguage') {
+        applyPdfListLanguage(e.newValue);
+    }
+});
+
+// Original PDF list JavaScript
+function deletePDF(id, title) {
+    if (confirm(`Are you sure you want to delete "${title}"? This action cannot be undone.`)) {
+        fetch(`/pdfs/${id}/delete/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            },
+        })
+        .then(response => {
+            if (response.ok) {
+                location.reload();
+            } else {
+                alert('Failed to delete the PDF.');
+            }
+        })
+        .catch(error => {
+            alert('Error deleting the PDF.');
+        });
+    }
+}
+
+// Check translation progress for in-progress documents
+document.addEventListener('DOMContentLoaded', function() {
+    const inProgressDocs = document.querySelectorAll('.progress-bar-animated');
+    
+    if (inProgressDocs.length > 0) {
+        setInterval(function() {
+            inProgressDocs.forEach(function(progressBar) {
+                const docId = progressBar.id.split('-')[1];
+                
+                fetch(`/pdfs/${docId}/progress/`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'completed') {
+                            location.reload();
+                        } else {
+                            progressBar.style.width = `${data.progress}%`;
+                            progressBar.setAttribute('aria-valuenow', data.progress);
+                            progressBar.textContent = `${data.progress}%`;
+                            
+                            const wordsElement = document.getElementById(`words-${docId}`);
+                            if (wordsElement) {
+                                const currentLanguage = localStorage.getItem('appLanguage') || 'en';
+                                const wordText = pdfListTranslations[currentLanguage].words;
+                                wordsElement.textContent = `${data.translated_words} / ${data.total_words} ${wordText}`;
+                            }
+                        }
+                    })
+                    .catch(error => console.error('Error fetching progress:', error));
+            });
+        }, 3000);
+    }
 });
 </script>
 {% endblock %} 

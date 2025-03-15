@@ -75,12 +75,25 @@ WSGI_APPLICATION = 'bookland.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
+# SQLite configuration (default)
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# PostgreSQL configuration (uncomment to use)
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.environ.get('DB_NAME', 'bookland'),
+#         'USER': os.environ.get('DB_USER', 'bookland_user'),
+#         'PASSWORD': os.environ.get('DB_PASSWORD', 'bookland_password'),
+#         'HOST': os.environ.get('DB_HOST', 'localhost'),
+#         'PORT': os.environ.get('DB_PORT', '5432'),
+#     }
+# }
 
 
 # Password validation
@@ -168,3 +181,6 @@ LOGGING = {
         },
     },
 }
+
+# OpenAI API settings
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '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')

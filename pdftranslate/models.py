@@ -3,188 +3,192 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 from datetime import timedelta
 import math
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
+
+class UserProfile(models.Model):
+    """Extended user profile information."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    default_language = models.CharField(max_length=10, default='en', choices=[
+        ('en', 'English'),
+        ('ru', 'Russian'),
+    ])
+    phone_number = models.CharField(max_length=20, blank=True, null=True)
+    social_media = models.CharField(max_length=255, blank=True, null=True, 
+                                   help_text="Social media handles or activity description")
+    profile_photo = models.ImageField(upload_to='profile_photos/', blank=True, null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"{self.user.username}'s profile"
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    """Create a UserProfile when a User is created."""
+    if created:
+        UserProfile.objects.create(user=instance)
+
+@receiver(post_save, sender=User)
+def save_user_profile(sender, instance, **kwargs):
+    """Save the UserProfile when the User is saved."""
+    instance.profile.save()
 
 class PDFDocument(models.Model):
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name='pdf_documents',
-        null=True,
-        blank=True
-    )
+    """Represents a PDF document uploaded by a user."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='documents')
     title = models.CharField(max_length=255)
     pdf_file = models.FileField(upload_to='pdfs/')
     uploaded_at = models.DateTimeField(default=timezone.now)
-    extracted_text = models.TextField(blank=True, null=True)
+    
+    # Translation status
+    TRANSLATION_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('in_progress', 'In Progress'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
     translation_status = models.CharField(
         max_length=20,
-        choices=[
-            ('pending', 'Pending'),
-            ('in_progress', 'In Progress'),
-            ('completed', 'Completed'),
-            ('failed', 'Failed')
-        ],
+        choices=TRANSLATION_STATUS_CHOICES,
         default='pending'
     )
-    translation_progress = models.IntegerField(default=0)
+    translation_progress = models.IntegerField(default=0)  # 0-100%
     total_words = models.IntegerField(default=0)
     translated_words = models.IntegerField(default=0)
-
+    
     def __str__(self):
-        return f"{self.user.username if self.user else 'No User'} - {self.title}"
-
-    class Meta:
-        ordering = ['-uploaded_at']
-
-    def create_all_flashcards(self, user):
-        created_count = 0
-        for word in self.words.all():
-            if word.translated_text and not word.has_flashcard:
-                word.create_flashcard(user)
-                created_count += 1
-        return created_count
-
+        return self.title
+    
     @property
     def flashcard_count(self):
-        return self.words.filter(flashcard__isnull=False).count()
-
-    @property
-    def available_words(self):
-        return self.words.filter(
-            translated_text__isnull=False,
-            flashcard__isnull=True
+        """Count flashcards associated with this document."""
+        return Flashcard.objects.filter(
+            word_entry__document=self
+        ).count()
+    
+    def create_all_flashcards(self, user):
+        """Create flashcards for all translated words in this document."""
+        # Get all words that don't have flashcards yet
+        words_without_flashcards = WordEntry.objects.filter(
+            document=self,
+            translated_text__isnull=False
+        ).exclude(
+            id__in=Flashcard.objects.filter(
+                word_entry__document=self
+            ).values_list('word_entry_id', flat=True)
         )
-
+        
+        # Create flashcards for each word
+        created_count = 0
+        for word in words_without_flashcards:
+            Flashcard.objects.create(
+                user=user,
+                word_entry=word,
+                next_review=timezone.now()
+            )
+            created_count += 1
+        
+        return created_count
 
 class WordEntry(models.Model):
-    document = models.ForeignKey(PDFDocument, on_delete=models.CASCADE, related_name='words')
+    """Represents a word or phrase extracted from a PDF document."""
+    document = models.ForeignKey(
+        PDFDocument, 
+        on_delete=models.CASCADE,
+        related_name='words'
+    )
     original_text = models.CharField(max_length=255)
-    translated_text = models.CharField(max_length=255, blank=True, null=True)
+    translated_text = models.CharField(max_length=255, null=True, blank=True)
     page_number = models.IntegerField()
-    position = models.IntegerField()
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['page_number', 'position']
-        verbose_name_plural = 'Word entries'
-
+    position = models.IntegerField(default=0)  # Position in the document
+    
     def __str__(self):
         return f"{self.original_text} -> {self.translated_text}"
 
-    def create_flashcard(self, user):
-        if not hasattr(self, 'flashcard'):
-            from .models import Flashcard
-            flashcard = Flashcard.objects.create(
-                word_entry=self,
-                user=user
-            )
-            return flashcard
-        return self.flashcard
-
-    @property
-    def has_flashcard(self):
-        return hasattr(self, 'flashcard')
-
-
 class Flashcard(models.Model):
-    INTERVAL_CHOICES = [
-        ('again', '<10m'),
-        ('hard', '<15m'),
-        ('good', '1d'),
-        ('easy', '2d'),
-    ]
-
-    word_entry = models.OneToOneField(
-        WordEntry,
-        on_delete=models.CASCADE,
-        related_name='flashcard'
-    )
-    user = models.ForeignKey(
-        User,
-        on_delete=models.CASCADE,
-        related_name='flashcards'
-    )
-    last_reviewed = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text='When this card was last reviewed'
-    )
-    next_review = models.DateTimeField(
-        default=timezone.now,
-        help_text='When this card should be reviewed next'
-    )
-    review_count = models.IntegerField(
-        default=0,
-        help_text='Number of successful reviews'
-    )
-    interval = models.CharField(
-        max_length=10,
-        choices=INTERVAL_CHOICES,
-        default='good',
-        help_text='Current review interval'
-    )
-
-    class Meta:
-        ordering = ['next_review']
-        indexes = [
-            models.Index(fields=['user', 'next_review']),
-            models.Index(fields=['word_entry']),
-        ]
-
+    """Represents a flashcard for learning a word."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    word_entry = models.ForeignKey(WordEntry, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(default=timezone.now)
+    last_reviewed = models.DateTimeField(null=True, blank=True)
+    next_review = models.DateTimeField()
+    
+    # Spaced repetition data
+    ease_factor = models.FloatField(default=2.5)  # Ease factor (2.5 is default)
+    interval = models.IntegerField(default=0)  # Interval in days
+    review_count = models.IntegerField(default=0)  # Number of reviews
+    
     def __str__(self):
-        return f"Flashcard for {self.word_entry}"
-
-    def calculate_next_interval(self, remembered: bool) -> int:
-        """Calculate the next review interval in days."""
-        if remembered:
-            # Exponential increase: 1 → 2 → 4 → 8 → 16 → 32 days
-            return int(math.pow(2, self.review_count))
-        else:
-            # Review tomorrow if forgotten
-            return 1
-
-    def update_schedule(self, remembered: bool):
-        """
-        Update the flashcard schedule based on review result.
-        
-        Args:
-            remembered (bool): Whether the user remembered the card
-        """
+        return f"Flashcard: {self.word_entry.original_text}"
+    
+    def update_schedule(self, remembered):
+        """Update the flashcard schedule based on whether it was remembered."""
         now = timezone.now()
         self.last_reviewed = now
-
+        self.review_count += 1
+        
         if remembered:
-            self.review_count += 1
-            self.interval = 'good'  
+            # If remembered, increase interval using SM-2 algorithm
+            if self.interval == 0:
+                self.interval = 1
+            elif self.interval == 1:
+                self.interval = 6
+            else:
+                self.interval = math.ceil(self.interval * self.ease_factor)
+                
+            # Cap interval at 365 days
+            self.interval = min(self.interval, 365)
+            
+            # Adjust ease factor (min 1.3, max 2.5)
+            self.ease_factor = max(1.3, min(2.5, self.ease_factor + 0.1))
         else:
-            self.review_count = max(0, self.review_count - 1)
-            self.interval = 'again'  
-
-        # Calculate next review date
-        interval_days = self.calculate_next_interval(remembered)
-        self.next_review = now + timedelta(days=interval_days)
+            # If forgotten, reset interval and decrease ease factor
+            self.interval = 0
+            self.ease_factor = max(1.3, self.ease_factor - 0.2)
+        
+        # Set next review time
+        if self.interval == 0:
+            # Review again in 10 minutes if forgotten
+            self.next_review = now + timedelta(minutes=10)
+        else:
+            # Review after the calculated interval
+            self.next_review = now + timedelta(days=self.interval)
+        
         self.save()
-
-    def get_next_review_description(self) -> str:
-        """Get a human-readable description of the next review interval."""
-        if not self.last_reviewed:
-            return "Not reviewed yet"
-        
-        interval = self.next_review - self.last_reviewed
-        days = interval.days
-        
-        if days == 0:
-            return "Review today"
-        elif days == 1:
-            return "Review tomorrow"
-        else:
-            return f"Review in {days} days"
-
+    
     def reset(self):
-        """Reset the card to its initial state."""
-        self.last_reviewed = None
-        self.next_review = timezone.now()
+        """Reset the flashcard to its initial state."""
+        self.ease_factor = 2.5
+        self.interval = 0
         self.review_count = 0
-        self.interval = 'good'  # Reset to standard interval
+        self.next_review = timezone.now()
         self.save()
+    
+    def get_next_review_description(self):
+        """Get a human-readable description of when the next review is due."""
+        now = timezone.now()
+        diff = self.next_review - now
+        
+        if diff.days > 0:
+            if diff.days == 1:
+                return "tomorrow"
+            elif diff.days < 7:
+                return f"{diff.days} days"
+            elif diff.days < 30:
+                weeks = diff.days // 7
+                return f"{weeks} week{'s' if weeks > 1 else ''}"
+            elif diff.days < 365:
+                months = diff.days // 30
+                return f"{months} month{'s' if months > 1 else ''}"
+            else:
+                years = diff.days // 365
+                return f"{years} year{'s' if years > 1 else ''}"
+        else:
+            hours = diff.seconds // 3600
+            if hours > 0:
+                return f"{hours} hour{'s' if hours > 1 else ''}"
+            else:
+                minutes = (diff.seconds % 3600) // 60
+                return f"{minutes} minute{'s' if minutes > 1 else ''}"

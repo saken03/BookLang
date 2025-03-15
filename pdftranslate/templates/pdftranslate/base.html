@@ -13,7 +13,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="{% url 'pdf_list' %}">
-                <i class="bi bi-book"></i> BookLand
+                <i class="bi bi-book"></i> <span id="navBrandText">BookLand</span>
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
                 <span class="navbar-toggler-icon"></span>
@@ -23,42 +23,60 @@
                     {% if user.is_authenticated %}
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'upload_pdf' %}">
-                            <i class="bi bi-upload"></i> Upload PDF
+                            <i class="bi bi-upload"></i> <span id="navUploadText">Upload PDF</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'pdf_list' %}">
-                            <i class="bi bi-files"></i> My PDFs
+                            <i class="bi bi-files"></i> <span id="navPdfsText">My PDFs</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'flashcard_list' %}">
-                            <i class="bi bi-card-text"></i> Flashcards
+                            <i class="bi bi-card-text"></i> <span id="navFlashcardsText">Flashcards</span>
                         </a>
                     </li>
                     {% endif %}
                 </ul>
                 <ul class="navbar-nav">
-                    {% if user.is_authenticated %}
-                    <li class="nav-item">
-                        <span class="nav-link">
-                            <i class="bi bi-person"></i> {{ user.username }}
-                        </span>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'logout' %}" onclick="return confirm('Are you sure you want to logout?')">
-                            <i class="bi bi-box-arrow-right"></i> Logout
+                    <!-- Language Selector -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="languageDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-globe"></i> <span id="languageText">Language:</span> <span id="currentLanguage">English</span>
                         </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="languageDropdown">
+                            <li><a class="dropdown-item" href="#" onclick="changeLanguage('en')">English</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="changeLanguage('ru')">Russian</a></li>
+                        </ul>
+                    </li>
+                    {% if user.is_authenticated %}
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-person"></i> {{ user.username }}
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                            <li>
+                                <a class="dropdown-item" href="{% url 'user_profile' %}">
+                                    <i class="bi bi-person-circle"></i> <span id="navProfileText">Profile</span>
+                                </a>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item" href="{% url 'logout' %}" onclick="return confirm(document.getElementById('logoutConfirmText').textContent)">
+                                    <i class="bi bi-box-arrow-right"></i> <span id="navLogoutText">Logout</span>
+                                </a>
+                            </li>
+                        </ul>
                     </li>
                     {% else %}
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'login' %}">
-                            <i class="bi bi-box-arrow-in-right"></i> Login
+                            <i class="bi bi-box-arrow-in-right"></i> <span id="navLoginText">Login</span>
                         </a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{% url 'signup' %}">
-                            <i class="bi bi-person-plus"></i> Sign Up
+                            <i class="bi bi-person-plus"></i> <span id="navSignupText">Sign Up</span>
                         </a>
                     </li>
                     {% endif %}
@@ -81,7 +99,108 @@
         {% endblock %}
     </div>
 
+    <!-- Hidden elements for translations -->
+    <div style="display: none;">
+        <span id="logoutConfirmText">Are you sure you want to logout?</span>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Language Script -->
+    <script>
+    // Base translations for common UI elements
+    const baseTranslations = {
+        en: {
+            brand: 'BookLand',
+            uploadPdf: 'Upload PDF',
+            myPdfs: 'My PDFs',
+            flashcards: 'Flashcards',
+            language: 'Language:',
+            profile: 'Profile',
+            logout: 'Logout',
+            login: 'Login',
+            signup: 'Sign Up',
+            logoutConfirm: 'Are you sure you want to logout?'
+        },
+        ru: {
+            brand: 'BookLand',
+            uploadPdf: 'Загрузить PDF',
+            myPdfs: 'Мои PDF',
+            flashcards: 'Карточки',
+            language: 'Язык:',
+            profile: 'Профиль',
+            logout: 'Выйти',
+            login: 'Войти',
+            signup: 'Регистрация',
+            logoutConfirm: 'Вы уверены, что хотите выйти?'
+        }
+    };
+
+    // Apply base translations to navigation and common elements
+    function applyBaseTranslations(lang) {
+        const translations = baseTranslations[lang];
+        
+        // Update navigation elements
+        document.getElementById('navBrandText').textContent = translations.brand;
+        
+        const uploadText = document.getElementById('navUploadText');
+        if (uploadText) uploadText.textContent = translations.uploadPdf;
+        
+        const pdfsText = document.getElementById('navPdfsText');
+        if (pdfsText) pdfsText.textContent = translations.myPdfs;
+        
+        const flashcardsText = document.getElementById('navFlashcardsText');
+        if (flashcardsText) flashcardsText.textContent = translations.flashcards;
+        
+        document.getElementById('languageText').textContent = translations.language;
+        document.getElementById('currentLanguage').textContent = lang === 'en' ? 'English' : 'Russian';
+        
+        const profileText = document.getElementById('navProfileText');
+        if (profileText) profileText.textContent = translations.profile;
+        
+        const logoutText = document.getElementById('navLogoutText');
+        if (logoutText) logoutText.textContent = translations.logout;
+        
+        const loginText = document.getElementById('navLoginText');
+        if (loginText) loginText.textContent = translations.login;
+        
+        const signupText = document.getElementById('navSignupText');
+        if (signupText) signupText.textContent = translations.signup;
+        
+        document.getElementById('logoutConfirmText').textContent = translations.logoutConfirm;
+        
+        // Set HTML lang attribute
+        document.documentElement.lang = lang;
+    }
+
+    // Initialize language settings
+    document.addEventListener('DOMContentLoaded', function() {
+        let currentLanguage = localStorage.getItem('appLanguage') || 'en';
+        applyBaseTranslations(currentLanguage);
+        
+        // Dispatch a custom event to notify other scripts that language has been initialized
+        document.dispatchEvent(new CustomEvent('languageInitialized', { detail: { language: currentLanguage } }));
+    });
+
+    // Change language function
+    function changeLanguage(lang) {
+        localStorage.setItem('appLanguage', lang);
+        applyBaseTranslations(lang);
+        
+        // Apply page-specific translations if available
+        if (typeof applyLanguage === 'function') {
+            applyLanguage(lang);
+        }
+        
+        if (typeof applyPdfListLanguage === 'function') {
+            applyPdfListLanguage(lang);
+        }
+        
+        // Dispatch a custom event for other components to listen to
+        document.dispatchEvent(new CustomEvent('languageChanged', { detail: { language: lang } }));
+    }
+    </script>
+    
     {% block extra_js %}{% endblock %}
 </body>
 </html> 

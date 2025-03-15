@@ -1,13 +1,14 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
-from django.contrib.auth import login, authenticate, logout
+from django.contrib.auth import login, authenticate, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
-from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.forms import UserCreationForm, PasswordChangeForm
+from django.contrib.auth.models import User
 from django.core.files.storage import default_storage
 from django.http import JsonResponse
 from django.utils import timezone
 from django.db.models import Q
-from .models import PDFDocument, WordEntry, Flashcard
+from .models import PDFDocument, WordEntry, Flashcard, UserProfile
 from .tasks import start_translation
 from PyPDF2 import PdfReader
 import io
@@ -16,6 +17,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from django.db import models
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -59,23 +61,152 @@ def login_view(request):
     return render(request, 'pdftranslate/login.html')
 
 @login_required
+def user_profile(request):
+    """
+    View and edit user profile information.
+    
+    This view handles:
+    - Updating basic user information (name, email)
+    - Updating profile information (language, phone, social media)
+    - Profile photo upload and management
+    - Password changes with validation
+    """
+    user = request.user
+    
+    if request.method == 'POST':
+        # Initialize validation errors dictionary
+        validation_errors = {}
+        
+        # Validate email
+        email = request.POST.get('email', '').strip()
+        if not email:
+            validation_errors['email'] = 'Email is required'
+        elif '@' not in email or '.' not in email:
+            validation_errors['email'] = 'Please enter a valid email address'
+        
+        # If no validation errors, proceed with updates
+        if not validation_errors:
+            # Update user information
+            user.email = email
+            user.first_name = request.POST.get('first_name', '').strip()
+            user.last_name = request.POST.get('last_name', '').strip()
+            
+            # Update profile information
+            user.profile.default_language = request.POST.get('default_language', user.profile.default_language)
+            user.profile.phone_number = request.POST.get('phone_number', '').strip()
+            user.profile.social_media = request.POST.get('social_media', '').strip()
+            
+            # Handle profile photo upload
+            if 'profile_photo' in request.FILES:
+                profile_photo = request.FILES['profile_photo']
+                
+                # Validate file type
+                allowed_types = ['image/jpeg', 'image/png', 'image/gif']
+                if profile_photo.content_type not in allowed_types:
+                    messages.error(request, 'Please upload a valid image file (JPEG, PNG, or GIF)')
+                    return render(request, 'pdftranslate/user_profile.html')
+                
+                # Validate file size (max 5MB)
+                if profile_photo.size > 5 * 1024 * 1024:
+                    messages.error(request, 'Image file is too large. Maximum size is 5MB.')
+                    return render(request, 'pdftranslate/user_profile.html')
+                
+                # Delete old photo if it exists
+                if user.profile.profile_photo:
+                    try:
+                        old_photo_path = user.profile.profile_photo.path
+                        if os.path.exists(old_photo_path):
+                            os.remove(old_photo_path)
+                    except Exception as e:
+                        logger.warning(f"Error deleting old profile photo: {str(e)}")
+                
+                # Save new photo
+                user.profile.profile_photo = profile_photo
+            
+            # Handle password change if provided
+            current_password = request.POST.get('current_password', '')
+            new_password = request.POST.get('new_password', '')
+            confirm_password = request.POST.get('confirm_password', '')
+            
+            if current_password and new_password and confirm_password:
+                # Validate password strength
+                if len(new_password) < 8:
+                    messages.error(request, 'Password must be at least 8 characters long.')
+                    return render(request, 'pdftranslate/user_profile.html')
+                
+                if new_password == confirm_password:
+                    # Check if current password is correct
+                    if user.check_password(current_password):
+                        user.set_password(new_password)
+                        messages.success(request, 'Your password has been updated successfully.')
+                        # Update session to prevent logout
+                        update_session_auth_hash(request, user)
+                    else:
+                        messages.error(request, 'Your current password is incorrect.')
+                        return render(request, 'pdftranslate/user_profile.html')
+                else:
+                    messages.error(request, 'New passwords do not match.')
+                    return render(request, 'pdftranslate/user_profile.html')
+            
+            # Save changes
+            user.save()
+            user.profile.save()
+            
+            messages.success(request, 'Your profile has been updated successfully.')
+            return redirect('user_profile')
+        else:
+            # Display validation errors
+            for field, error in validation_errors.items():
+                messages.error(request, error)
+    
+    return render(request, 'pdftranslate/user_profile.html')
+
+@login_required
 def delete_pdf(request, pk):
     """Delete a PDF document and its associated files."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Method not allowed'}, status=405)
+        
     document = get_object_or_404(PDFDocument, pk=pk, user=request.user)
     
     try:
-        # Delete the actual file from storage
-        if document.pdf_file and os.path.exists(document.pdf_file.path):
-            os.remove(document.pdf_file.path)
+        # Get the document directory path
+        doc_dir = os.path.dirname(document.pdf_file.path)
         
-        # Delete the database record (this will cascade delete WordEntries)
+        # Delete the actual file from storage
+        if document.pdf_file:
+            try:
+                # Delete the file
+                if os.path.exists(document.pdf_file.path):
+                    os.remove(document.pdf_file.path)
+                # Delete the parent directory if empty
+                if os.path.exists(doc_dir) and not os.listdir(doc_dir):
+                    os.rmdir(doc_dir)
+            except Exception as e:
+                logger.warning(f"Error deleting file {document.pdf_file.path}: {str(e)}")
+        
+        # Delete all associated flashcards
+        Flashcard.objects.filter(word_entry__document=document).delete()
+        
+        # Delete all word entries
+        WordEntry.objects.filter(document=document).delete()
+        
+        # Delete the document record
         document.delete()
-        messages.success(request, f'"{document.title}" has been deleted.')
+        
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse({'status': 'success'})
+        else:
+            messages.success(request, f'"{document.title}" has been deleted.')
+            return redirect('pdf_list')
+            
     except Exception as e:
         logger.error(f"Error deleting PDF {document.title}: {str(e)}")
-        messages.error(request, 'Error deleting the PDF file.')
-    
-    return redirect('pdf_list')
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse({'error': 'Failed to delete document'}, status=500)
+        else:
+            messages.error(request, 'Error deleting the PDF file.')
+            return redirect('pdf_list')
 
 @login_required
 def upload_pdf(request):
@@ -175,25 +306,56 @@ def flashcard_list(request):
     """Display flashcards that are due for review."""
     now = timezone.now()
     
+    # Check if a specific deck is selected
+    selected_deck_id = request.GET.get('deck')
+    selected_document = None
+    
+    # Base query for flashcards
+    flashcard_query = Flashcard.objects.filter(user=request.user)
+    
+    if selected_deck_id:
+        try:
+            selected_document = PDFDocument.objects.get(
+                id=selected_deck_id,
+                user=request.user
+            )
+            # Filter flashcards for selected deck
+            flashcard_query = flashcard_query.filter(
+                word_entry__document=selected_document
+            )
+        except PDFDocument.DoesNotExist:
+            messages.error(request, 'Selected deck not found.')
+    
     # Get flashcards that are either due for review or new
-    flashcards = Flashcard.objects.filter(
-        user=request.user,
-        next_review__lte=now
-    ).select_related('word_entry').order_by('next_review')
+    flashcards = (
+        flashcard_query
+        .filter(next_review__lte=now)
+        .select_related('word_entry__document')
+        .order_by('next_review')
+    )
     
     # Get statistics
-    total_cards = Flashcard.objects.filter(user=request.user).count()
-    cards_due = flashcards.count()
-    cards_learned = Flashcard.objects.filter(
-        user=request.user,
-        review_count__gt=0
-    ).count()
+    if selected_document:
+        # Stats for selected deck
+        total_cards = flashcard_query.count()
+        cards_due = flashcards.count()
+        cards_learned = flashcard_query.filter(
+            review_count__gt=0
+        ).count()
+    else:
+        # Stats for all decks
+        total_cards = flashcard_query.count()
+        cards_due = flashcards.count()
+        cards_learned = flashcard_query.filter(
+            review_count__gt=0
+        ).count()
     
     context = {
         'flashcards': flashcards,
         'total_cards': total_cards,
         'cards_due': cards_due,
         'cards_learned': cards_learned,
+        'selected_document': selected_document,
     }
     return render(request, 'pdftranslate/flashcard_list.html', context)
 
@@ -201,6 +363,23 @@ def flashcard_list(request):
 def flashcard_review(request, pk=None):
     """Review a specific flashcard or get the next due card."""
     now = timezone.now()
+    selected_deck_id = request.GET.get('deck')
+    
+    # Base query for flashcards
+    flashcard_query = Flashcard.objects.filter(user=request.user)
+    
+    # Filter by deck if specified
+    if selected_deck_id:
+        try:
+            selected_document = PDFDocument.objects.get(
+                id=selected_deck_id,
+                user=request.user
+            )
+            flashcard_query = flashcard_query.filter(
+                word_entry__document=selected_document
+            )
+        except PDFDocument.DoesNotExist:
+            messages.error(request, 'Selected deck not found.')
     
     if request.method == 'POST':
         # Handle review submission
@@ -214,35 +393,16 @@ def flashcard_review(request, pk=None):
         interval = request.POST.get('interval', 'good')
         remembered = request.POST.get('remembered', '').lower() == 'true'
         
-        # Calculate next review time based on interval
-        if interval == 'again':
-            next_review = now + timedelta(minutes=10)
-            remembered = False
-        elif interval == 'hard':
-            next_review = now + timedelta(minutes=15)
-            remembered = False
-        elif interval == 'good':
-            next_review = now + timedelta(days=1)
-            remembered = True
-        else:  # easy
-            next_review = now + timedelta(days=2)
-            remembered = True
-        
-        # Update flashcard
-        flashcard.last_reviewed = now
-        flashcard.next_review = next_review
-        if remembered:
-            flashcard.review_count += 1
-        else:
-            flashcard.review_count = max(0, flashcard.review_count - 1)
-        flashcard.save()
+        # Update flashcard schedule
+        flashcard.update_schedule(remembered)
         
         # Show appropriate message
         if remembered:
-            messages.success(
-                request,
-                f'Great job! Next review in {flashcard.get_next_review_description()}.'
+            msg = (
+                f'Great job! Next review in '
+                f'{flashcard.get_next_review_description()}.'
             )
+            messages.success(request, msg)
         else:
             messages.info(
                 request,
@@ -250,50 +410,58 @@ def flashcard_review(request, pk=None):
             )
         
         # Find the next card to review
-        next_card = Flashcard.objects.filter(
-            user=request.user,
-            next_review__lte=now
-        ).exclude(pk=flashcard.pk).first()
+        next_card = (
+            flashcard_query
+            .filter(next_review__lte=now)
+            .exclude(pk=flashcard.pk)
+            .first()
+        )
         
         if next_card:
-            return redirect('flashcard_review', pk=next_card.pk)
+            redirect_kwargs = {'pk': next_card.pk}
+            if selected_deck_id:
+                redirect_kwargs['deck'] = selected_deck_id
+            return redirect('flashcard_review', **redirect_kwargs)
         else:
             messages.success(
                 request,
                 "Congratulations! You've completed all reviews for now."
             )
+            if selected_deck_id:
+                return redirect('flashcard_list', deck=selected_deck_id)
             return redirect('flashcard_list')
     
     # GET request - show the next card
     if pk is None:
         # Get the next due card
-        flashcard = Flashcard.objects.filter(
-            user=request.user,
-            next_review__lte=now
-        ).first()
+        flashcard = flashcard_query.filter(next_review__lte=now).first()
         if not flashcard:
             messages.info(request, 'No cards due for review at this time.')
             return redirect('flashcard_list')
     else:
         # Get the specific card
-        flashcard = get_object_or_404(Flashcard, pk=pk, user=request.user)
+        flashcard = get_object_or_404(
+            flashcard_query,
+            pk=pk
+        )
     
     # Get progress information
-    total_due = Flashcard.objects.filter(
-        user=request.user,
-        next_review__lte=now
-    ).count()
-    reviewed_today = Flashcard.objects.filter(
-        user=request.user,
+    total_due = flashcard_query.filter(next_review__lte=now).count()
+    reviewed_today = flashcard_query.filter(
         last_reviewed__date=now.date()
     ).count()
     cards_remaining_today = max(0, total_due - reviewed_today)
+    
+    # Get total learned cards (cards that have been reviewed at least once)
+    total_learned = flashcard_query.filter(review_count__gt=0).count()
     
     context = {
         'flashcard': flashcard,
         'total_due': total_due,
         'reviewed_today': reviewed_today,
         'cards_remaining_today': cards_remaining_today,
+        'selected_deck_id': selected_deck_id,
+        'total_learned': total_learned,
     }
     return render(request, 'pdftranslate/flashcard_review.html', context)
 
@@ -380,3 +548,35 @@ def reset_flashcard(request, pk):
         'status': 'success',
         'message': 'Flashcard has been reset'
     })
+
+@login_required
+def rename_document(request, pk):
+    """AJAX endpoint to rename a document."""
+    try:
+        document = PDFDocument.objects.get(pk=pk, user=request.user)
+        
+        if request.method == 'POST':
+            data = json.loads(request.body)
+            new_title = data.get('title', '').strip()
+            
+            if new_title:
+                document.title = new_title
+                document.save()
+                return JsonResponse({'status': 'success'})
+            else:
+                return JsonResponse(
+                    {'error': 'Title cannot be empty'}, 
+                    status=400
+                )
+                
+    except PDFDocument.DoesNotExist:
+        return JsonResponse(
+            {'error': 'Document not found'}, 
+            status=404
+        )
+    except Exception as e:
+        logger.error(f"Error renaming document: {str(e)}")
+        return JsonResponse(
+            {'error': 'Failed to rename document'}, 
+            status=500
+        )

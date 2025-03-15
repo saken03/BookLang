@@ -7,14 +7,14 @@
     <!-- Header with Actions -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="mb-0">Flashcards</h1>
-            <p class="text-muted mb-0">You have {{ cards_due }} cards due for review.</p>
+            <h1 class="mb-0" id="flashcardsTitle">Flashcards</h1>
+            <p class="text-muted mb-0" id="cardsDueText">You have {{ cards_due }} cards due for review.</p>
         </div>
         <div>
             {% if cards_due > 0 %}
-                <a href="{% url 'flashcard_review' %}" class="btn btn-primary me-2">Start Review</a>
+                <a href="{% url 'flashcard_review' %}" class="btn btn-primary me-2" id="startReviewBtn">Start Review</a>
             {% endif %}
-            <a href="{% url 'upload_pdf' %}" class="btn btn-success">
+            <a href="{% url 'upload_pdf' %}" class="btn btn-success" id="uploadDocBtn">
                 <i class="bi bi-upload"></i> Upload Document
             </a>
         </div>
@@ -23,13 +23,13 @@
     <!-- Basic Stats -->
     <div class="row mb-4">
         <div class="col-md-4">
-            <p>Total Cards: {{ total_cards }}</p>
+            <p id="totalCardsText">Total Cards: {{ total_cards }}</p>
         </div>
         <div class="col-md-4">
-            <p>Cards Learned: {{ cards_learned }}</p>
+            <p id="cardsLearnedText">Cards Learned: {{ cards_learned }}</p>
         </div>
         <div class="col-md-4">
-            <p>Due for Review: {{ cards_due }}</p>
+            <p id="dueForReviewText">Due for Review: {{ cards_due }}</p>
         </div>
     </div>
 
@@ -47,10 +47,10 @@
                         <table class="table">
                             <thead>
                                 <tr>
-                                    <th>English</th>
-                                    <th>Russian</th>
-                                    <th>Page</th>
-                                    <th>Actions</th>
+                                    <th id="englishHeader">English</th>
+                                    <th id="russianHeader">Russian</th>
+                                    <th id="pageHeader">Page</th>
+                                    <th id="actionsHeader">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -60,8 +60,8 @@
                                     <td>{{ card.word_entry.translated_text }}</td>
                                     <td>{{ card.word_entry.page_number }}</td>
                                     <td>
-                                        <a href="{% url 'flashcard_review' card.pk %}" class="btn btn-sm btn-primary">Review</a>
-                                        <button onclick="resetCard({{ card.pk }})" class="btn btn-sm btn-warning">Reset</button>
+                                        <a href="{% url 'flashcard_review' card.pk %}" class="btn btn-sm btn-primary review-btn">Review</a>
+                                        <button onclick="resetCard({{ card.pk }})" class="btn btn-sm btn-warning reset-btn">Reset</button>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -73,8 +73,8 @@
         {% endfor %}
     {% else %}
         <div class="text-center py-5">
-            <p class="text-muted mb-3">No flashcards available for review.</p>
-            <p class="mb-0">Get started by uploading a document to create flashcards.</p>
+            <p class="text-muted mb-3" id="noFlashcardsText">No flashcards available for review.</p>
+            <p id="uploadPromptText">Get started by uploading a document to create flashcards.</p>
         </div>
     {% endif %}
 </div>
@@ -82,8 +82,110 @@
 
 {% block extra_js %}
 <script>
+// Language translations for flashcard list page
+const flashcardListTranslations = {
+    en: {
+        flashcards: 'Flashcards',
+        cardsDue: 'You have {{ cards_due }} cards due for review.',
+        startReview: 'Start Review',
+        uploadDocument: 'Upload Document',
+        totalCards: 'Total Cards: {{ total_cards }}',
+        cardsLearned: 'Cards Learned: {{ cards_learned }}',
+        dueForReview: 'Due for Review: {{ cards_due }}',
+        english: 'English',
+        russian: 'Russian',
+        page: 'Page',
+        actions: 'Actions',
+        review: 'Review',
+        reset: 'Reset',
+        noFlashcards: 'No flashcards available for review.',
+        uploadPrompt: 'Get started by uploading a document to create flashcards.'
+    },
+    ru: {
+        flashcards: 'Карточки',
+        cardsDue: 'У вас {{ cards_due }} карточек для повторения.',
+        startReview: 'Начать повторение',
+        uploadDocument: 'Загрузить документ',
+        totalCards: 'Всего карточек: {{ total_cards }}',
+        cardsLearned: 'Изучено карточек: {{ cards_learned }}',
+        dueForReview: 'Для повторения: {{ cards_due }}',
+        english: 'Английский',
+        russian: 'Русский',
+        page: 'Страница',
+        actions: 'Действия',
+        review: 'Повторить',
+        reset: 'Сбросить',
+        noFlashcards: 'Нет доступных карточек для повторения.',
+        uploadPrompt: 'Начните с загрузки документа для создания карточек.'
+    }
+};
+
+// Apply language to flashcard list page
+function applyFlashcardListLanguage(lang) {
+    const translations = flashcardListTranslations[lang];
+    
+    // Replace placeholders with actual values
+    const cardsDueText = translations.cardsDue.replace('{{ cards_due }}', '{{ cards_due }}'.match(/\d+/) || 0);
+    const totalCardsText = translations.totalCards.replace('{{ total_cards }}', '{{ total_cards }}'.match(/\d+/) || 0);
+    const cardsLearnedText = translations.cardsLearned.replace('{{ cards_learned }}', '{{ cards_learned }}'.match(/\d+/) || 0);
+    const dueForReviewText = translations.dueForReview.replace('{{ cards_due }}', '{{ cards_due }}'.match(/\d+/) || 0);
+    
+    // Update page elements
+    document.getElementById('flashcardsTitle').textContent = translations.flashcards;
+    document.getElementById('cardsDueText').textContent = cardsDueText;
+    
+    const startReviewBtn = document.getElementById('startReviewBtn');
+    if (startReviewBtn) startReviewBtn.textContent = translations.startReview;
+    
+    document.getElementById('uploadDocBtn').innerHTML = `<i class="bi bi-upload"></i> ${translations.uploadDocument}`;
+    
+    document.getElementById('totalCardsText').textContent = totalCardsText;
+    document.getElementById('cardsLearnedText').textContent = cardsLearnedText;
+    document.getElementById('dueForReviewText').textContent = dueForReviewText;
+    
+    // Update table headers
+    const englishHeader = document.getElementById('englishHeader');
+    if (englishHeader) englishHeader.textContent = translations.english;
+    
+    const russianHeader = document.getElementById('russianHeader');
+    if (russianHeader) russianHeader.textContent = translations.russian;
+    
+    const pageHeader = document.getElementById('pageHeader');
+    if (pageHeader) pageHeader.textContent = translations.page;
+    
+    const actionsHeader = document.getElementById('actionsHeader');
+    if (actionsHeader) actionsHeader.textContent = translations.actions;
+    
+    // Update buttons
+    document.querySelectorAll('.review-btn').forEach(btn => {
+        btn.textContent = translations.review;
+    });
+    
+    document.querySelectorAll('.reset-btn').forEach(btn => {
+        btn.textContent = translations.reset;
+    });
+    
+    // Update empty state messages
+    const noFlashcardsText = document.getElementById('noFlashcardsText');
+    if (noFlashcardsText) noFlashcardsText.textContent = translations.noFlashcards;
+    
+    const uploadPromptText = document.getElementById('uploadPromptText');
+    if (uploadPromptText) uploadPromptText.textContent = translations.uploadPrompt;
+}
+
+// Initialize language on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const currentLanguage = localStorage.getItem('appLanguage') || 'en';
+    applyFlashcardListLanguage(currentLanguage);
+});
+
+// Listen for language changes
+document.addEventListener('languageChanged', function(e) {
+    applyFlashcardListLanguage(e.detail.language);
+});
+
 function resetCard(cardId) {
-    if (confirm('Reset this card?')) {
+    if (confirm(localStorage.getItem('appLanguage') === 'ru' ? 'Сбросить эту карточку?' : 'Reset this card?')) {
         fetch(`/flashcards/${cardId}/reset/`, {
             method: 'POST',
             headers: {
@@ -94,11 +196,11 @@ function resetCard(cardId) {
             if (response.ok) {
                 location.reload();
             } else {
-                alert('Failed to reset card.');
+                alert(localStorage.getItem('appLanguage') === 'ru' ? 'Не удалось сбросить карточку.' : 'Failed to reset card.');
             }
         })
         .catch(error => {
-            alert('Error resetting card.');
+            alert(localStorage.getItem('appLanguage') === 'ru' ? 'Ошибка при сбросе карточки.' : 'Error resetting card.');
         });
     }
 }

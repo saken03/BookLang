@@ -7,7 +7,7 @@
     <div class="col-md-8">
         <div class="card document-card">
             <div class="card-header bg-white">
-                <h2 class="text-center mb-0">
+                <h2 class="text-center mb-0" id="uploadTitle">
                     <i class="bi bi-cloud-upload"></i> Upload PDF
                 </h2>
             </div>
@@ -16,26 +16,26 @@
                     {% csrf_token %}
                     <div class="upload-zone" id="dropZone">
                         <i class="bi bi-file-earmark-pdf display-4 text-primary mb-3"></i>
-                        <h4>Drag and drop your PDF here</h4>
-                        <p class="text-muted">or</p>
+                        <h4 id="dragDropText">Drag and drop your PDF here</h4>
+                        <p class="text-muted" id="orText">or</p>
                         <div class="mb-3">
                             <input type="file" class="form-control" id="pdf_file" name="pdf_file" 
                                    accept=".pdf" required style="display: none;">
-                            <button type="button" class="btn btn-primary" onclick="document.getElementById('pdf_file').click()">
+                            <button type="button" class="btn btn-primary" onclick="document.getElementById('pdf_file').click()" id="chooseFileBtn">
                                 Choose File
                             </button>
                         </div>
                         <div id="fileInfo" class="mt-3" style="display: none;">
                             <p class="text-success">
                                 <i class="bi bi-check-circle"></i> 
-                                Selected file: <span id="fileName"></span>
+                                <span id="selectedFileText">Selected file:</span> <span id="fileName"></span>
                             </p>
                         </div>
                     </div>
                     <div class="text-center mt-4">
                         <button type="submit" class="btn btn-primary btn-lg" id="uploadButton">
                             <span class="spinner-border spinner-border-sm loading-spinner" role="status"></span>
-                            Upload and Translate
+                            <span id="uploadButtonText">Upload and Translate</span>
                         </button>
                     </div>
                 </form>
@@ -47,12 +47,53 @@
 
 {% block extra_js %}
 <script>
+// Language translations for upload page
+const uploadTranslations = {
+    en: {
+        uploadTitle: 'Upload PDF',
+        dragDrop: 'Drag and drop your PDF here',
+        or: 'or',
+        chooseFile: 'Choose File',
+        selectedFile: 'Selected file:',
+        uploadTranslate: 'Upload and Translate'
+    },
+    ru: {
+        uploadTitle: 'Загрузить PDF',
+        dragDrop: 'Перетащите PDF сюда',
+        or: 'или',
+        chooseFile: 'Выбрать файл',
+        selectedFile: 'Выбранный файл:',
+        uploadTranslate: 'Загрузить и перевести'
+    }
+};
+
+// Apply language to upload page
+function applyUploadLanguage(lang) {
+    const translations = uploadTranslations[lang];
+    
+    document.getElementById('uploadTitle').innerHTML = `<i class="bi bi-cloud-upload"></i> ${translations.uploadTitle}`;
+    document.getElementById('dragDropText').textContent = translations.dragDrop;
+    document.getElementById('orText').textContent = translations.or;
+    document.getElementById('chooseFileBtn').textContent = translations.chooseFile;
+    document.getElementById('selectedFileText').textContent = translations.selectedFile;
+    document.getElementById('uploadButtonText').textContent = translations.uploadTranslate;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const dropZone = document.getElementById('dropZone');
     const fileInput = document.getElementById('pdf_file');
     const fileInfo = document.getElementById('fileInfo');
     const fileName = document.getElementById('fileName');
     const uploadForm = document.getElementById('uploadForm');
+
+    // Apply language
+    const currentLanguage = localStorage.getItem('appLanguage') || 'en';
+    applyUploadLanguage(currentLanguage);
+    
+    // Listen for language changes
+    document.addEventListener('languageChanged', function(e) {
+        applyUploadLanguage(e.detail.language);
+    });
 
     // Drag and drop handlers
     dropZone.addEventListener('dragover', (e) => {

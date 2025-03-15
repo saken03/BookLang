@@ -20,9 +20,6 @@
                 {% if flashcard.word_entry.translated_text %}
                     <div id="translation" style="display: none;">
                         <h2 class="text-success mb-2">[{{ flashcard.word_entry.translated_text }}]</h2>
-                        <button onclick="playTranslation('{{ flashcard.word_entry.translated_text }}')" class="btn btn-link">
-                            <i class="bi bi-volume-up"></i>
-                        </button>
                     </div>
                 {% endif %}
             </div>
@@ -73,13 +70,65 @@
     <div class="text-center mt-4 text-muted">
         <span class="me-3">New: {{ total_due }}</span>
         <span class="me-3">Learning: {{ reviewed_today }}</span>
-        <span>Due: {{ cards_remaining_today }}</span>
+        <span class="me-3">Due: {{ cards_remaining_today }}</span>
+        <span>Learned: {{ total_learned }}</span>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// Language settings
+const translations = {
+    en: {
+        showAnswer: 'Show Answer',
+        again: 'Again',
+        hard: 'Hard',
+        good: 'Good',
+        easy: 'Easy',
+        new: 'New',
+        learning: 'Learning',
+        due: 'Due',
+        learned: 'Learned'
+    },
+    ru: {
+        showAnswer: 'Показать ответ',
+        again: 'Снова',
+        hard: 'Сложно',
+        good: 'Хорошо',
+        easy: 'Легко',
+        new: 'Новые',
+        learning: 'Изучаемые',
+        due: 'Ожидающие',
+        learned: 'Изученные'
+    }
+};
+
+// Initialize language on page load
+document.addEventListener('DOMContentLoaded', function() {
+    let currentLanguage = localStorage.getItem('appLanguage') || 'en';
+    applyLanguage(currentLanguage);
+});
+
+function applyLanguage(lang) {
+    // Update UI text
+    document.getElementById('showAnswerBtn').textContent = translations[lang].showAnswer;
+    
+    // Update review buttons
+    const buttons = document.querySelectorAll('#reviewForm button small');
+    buttons[0].textContent = translations[lang].again;
+    buttons[1].textContent = translations[lang].hard;
+    buttons[2].textContent = translations[lang].good;
+    buttons[3].textContent = translations[lang].easy;
+    
+    // Update stats
+    const stats = document.querySelectorAll('.text-center.mt-4.text-muted span');
+    stats[0].innerHTML = translations[lang].new + ': {{ total_due }}';
+    stats[1].innerHTML = translations[lang].learning + ': {{ reviewed_today }}';
+    stats[2].innerHTML = translations[lang].due + ': {{ cards_remaining_today }}';
+    stats[3].innerHTML = translations[lang].learned + ': {{ total_learned }}';
+}
+
 function showAnswer() {
     document.getElementById('translation').style.display = 'block';
     document.getElementById('showAnswerBtn').style.display = 'none';
@@ -93,12 +142,6 @@ function setRemembered(remembered) {
     input.name = 'remembered';
     input.value = remembered;
     form.appendChild(input);
-}
-
-function playTranslation(text) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ru-RU';
-    window.speechSynthesis.speak(utterance);
 }
 
 // Keyboard shortcuts

@@ -1,21 +1,22 @@
 import threading
 from PyPDF2 import PdfReader
-import io
 import re
 import logging
 import traceback
-from .translation_service import TranslationService
+from .gpt_service import GPTService
 from .models import PDFDocument, WordEntry
-from django.db import transaction
 import time
 
 logger = logging.getLogger(__name__)
 
 
 def clean_text(text):
-    """Clean and split text into words."""
-    words = re.findall(r'\b\w+\b', text.lower())
-    return [w for w in words if len(w) > 1]
+    """Clean and normalize text."""
+    # Remove extra whitespace
+    text = ' '.join(text.split())
+    # Remove special characters but keep sentence structure
+    text = re.sub(r'[^\w\s.,!?-]', '', text)
+    return text
 
 
 class TranslationTask(threading.Thread):
@@ -34,13 +35,13 @@ class TranslationTask(threading.Thread):
             document.translation_status = 'in_progress'
             document.save()
             
-            # Initialize translation service
-            logger.info(f"Initializing translation service for document {self.document_id}")
+            # Initialize GPT service
+            logger.info("Initializing GPT service")
             try:
-                translation_service = TranslationService()
-                logger.info(f"Translation service initialized successfully")
+                gpt_service = GPTService()
+                logger.info("GPT service initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize translation service: {str(e)}")
+                logger.error(f"Failed to initialize GPT service: {str(e)}")
                 document.translation_status = 'failed'
                 document.save()
                 return
@@ -56,95 +57,109 @@ class TranslationTask(threading.Thread):
                 document.save()
                 return
             
-            # First pass: count total words
-            logger.info(f"Counting words in document {self.document_id}")
-            total_words = 0
-            words_by_page = []
+            # Extract and process text page by page
+            all_words = []
+            all_contexts = {}
+            extracted_text = []
+            
             for page_num, page in enumerate(pdf_reader.pages, 1):
                 try:
+                    # Extract text from page
                     text = page.extract_text()
-                    page_words = clean_text(text)
-                    words_by_page.append(page_words)
-                    total_words += len(page_words)
-                    logger.info(f"Page {page_num}: Found {len(page_words)} words")
+                    cleaned_text = clean_text(text)
+                    extracted_text.append(cleaned_text)
+                    
+                    # Extract words and context
+                    analysis = gpt_service.extract_text(cleaned_text)
+                    
+                    # Store words and their context
+                    words = analysis.get('important_words', [])
+                    contexts = analysis.get('context', {})
+                    
+                    # Add page number to context
+                    for word in words:
+                        if word in contexts:
+                            contexts[word] = f"Page {page_num}: {contexts[word]}"
+                    
+                    all_words.extend(words)
+                    all_contexts.update(contexts)
+                    
+                    logger.info(f"Page {page_num}: Found {len(words)} words")
+                    
                 except Exception as e:
-                    logger.error(f"Error extracting text from page {page_num}: {str(e)}")
+                    logger.error(f"Error processing page {page_num}: {str(e)}")
             
-            if total_words == 0:
-                logger.error(f"No words found in document {self.document_id}")
+            if not all_words:
+                logger.error("No words found for translation")
                 document.translation_status = 'failed'
                 document.save()
                 return
-                
-            document.total_words = total_words
+            
+            # Update document with total words
+            document.total_words = len(all_words)
             document.save()
-            logger.info(f"Total words in document: {total_words}")
             
-            # Second pass: translate words with progress updates
+            # Translate words with context
             translated_words = 0
-            extracted_text = []
+            batch_size = 5
             
-            for page_num, words in enumerate(words_by_page, 1):
-                text = pdf_reader.pages[page_num - 1].extract_text()
-                extracted_text.append(text)
-                
-                if words:
-                    # Translate in smaller batches for more frequent updates
-                    batch_size = 5  # Translate 5 words at a time
-                    for i in range(0, len(words), batch_size):
-                        batch = words[i:i + batch_size]
-                        logger.info(f"Translating batch of {len(batch)} words from page {page_num}")
-                        
-                        try:
-                            translations = translation_service.batch_translate(batch)
-                            logger.info(f"Successfully translated batch: {translations}")
-                            
-                            # Create WordEntry instances for this batch
-                            word_entries = []
-                            for pos, (word, trans) in enumerate(zip(batch, translations), start=i):
-                                if trans:
-                                    word_entries.append(
-                                        WordEntry(
-                                            document=document,
-                                            original_text=word,
-                                            translated_text=trans,
-                                            page_number=page_num,
-                                            position=pos
-                                        )
+            for i in range(0, len(all_words), batch_size):
+                batch = all_words[i:i + batch_size]
+                try:
+                    translations = gpt_service.batch_translate(
+                        batch,
+                        target_language='Russian',
+                        contexts={word: all_contexts.get(word, '') for word in batch}
+                    )
+                    
+                    # Create WordEntry instances
+                    word_entries = []
+                    for word, trans in zip(batch, translations):
+                        if trans:
+                            word_entries.append(
+                                WordEntry(
+                                    document=document,
+                                    original_text=word,
+                                    translated_text=trans,
+                                    context=all_contexts.get(word, ''),
+                                    page_number=int(
+                                        re.search(
+                                            r'Page (\d+):',
+                                            all_contexts.get(word, 'Page 1:')
+                                        ).group(1)
                                     )
-                                    translated_words += 1
-                            
-                            if word_entries:
-                                WordEntry.objects.bulk_create(word_entries)
-                            
-                            # Update progress more frequently
-                            progress = int((translated_words / total_words) * 100)
-                            document.translation_progress = min(progress, 99)
-                            document.translated_words = translated_words
-                            document.save()
-                            
-                            # Add a small delay to make progress visible
-                            time.sleep(0.5)
-                        except Exception as e:
-                            logger.error(f"Error translating batch: {str(e)}")
-                            logger.error(traceback.format_exc())
+                                )
+                            )
+                            translated_words += 1
+                    
+                    if word_entries:
+                        WordEntry.objects.bulk_create(word_entries)
+                    
+                    # Update progress
+                    progress = int((translated_words / len(all_words)) * 100)
+                    document.translation_progress = min(progress, 99)
+                    document.translated_words = translated_words
+                    document.save()
+                    
+                except Exception as e:
+                    logger.error(f"Error translating batch: {str(e)}")
             
             # Save the complete extracted text
             document.extracted_text = '\n'.join(extracted_text)
             
             # Update final status
             if translated_words == 0:
-                logger.error(f"No words were translated for document {self.document_id}")
+                logger.error("No words were translated")
                 document.translation_status = 'failed'
             else:
-                logger.info(f"Translation completed for document {self.document_id}. Translated {translated_words} words.")
+                logger.info(f"Translation completed. Translated {translated_words} words")
                 document.translation_status = 'completed'
                 document.translation_progress = 100
             
             document.save()
             
         except Exception as e:
-            error_message = f"Translation task error for document {self.document_id}: {str(e)}"
+            error_message = f"Translation task error: {str(e)}"
             logger.error(error_message)
             logger.error(traceback.format_exc())
             try:

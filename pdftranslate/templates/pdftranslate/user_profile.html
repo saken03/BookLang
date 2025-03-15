@@ -1,0 +1,541 @@
+{% extends 'pdftranslate/base.html' %}
+
+{% block title %}User Profile - {{ block.super }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="row">
+        <!-- Left Column - User Info and Subscription -->
+        <div class="col-md-4 mb-4">
+            <div class="card shadow mb-4">
+                <div class="card-body text-center">
+                    <div class="mb-3 position-relative">
+                        {% if user.profile.profile_photo %}
+                            <img src="{{ user.profile.profile_photo.url }}" alt="Profile Photo" class="rounded-circle img-fluid" style="width: 150px; height: 150px; object-fit: cover;" id="profilePhotoDisplay">
+                        {% else %}
+                            <div class="rounded-circle bg-primary d-flex align-items-center justify-content-center mx-auto" style="width: 150px; height: 150px;" id="profilePhotoPlaceholder">
+                                <i class="bi bi-person-fill text-white" style="font-size: 5rem;"></i>
+                            </div>
+                        {% endif %}
+                        <button type="button" class="btn btn-sm btn-primary position-absolute bottom-0 end-0 rounded-circle" style="width: 40px; height: 40px;" id="changePhotoBtn" aria-label="Change profile photo">
+                            <i class="bi bi-camera-fill"></i>
+                        </button>
+                    </div>
+                    <h4 class="mb-1">{{ user.get_full_name|default:user.username }}</h4>
+                    <p class="text-muted">{{ user.email }}</p>
+                    <p class="text-muted small" id="memberSinceText">Member since: {{ user.profile.created_at|date:"F j, Y" }}</p>
+                </div>
+            </div>
+            
+            <!-- Subscription Info -->
+            <div class="card shadow">
+                <div class="card-header bg-white">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-primary d-flex align-items-center justify-content-center me-3" style="width: 40px; height: 40px;">
+                            <i class="bi bi-currency-dollar text-white"></i>
+                        </div>
+                        <h5 class="mb-0" id="subscriptionTitle">Subscription</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="text-center py-2">
+                        <h2 class="mb-0">Free</h2>
+                        <p class="text-muted" id="subscriptionPriceText">0₸ /month</p>
+                        
+                        <div class="progress mb-3" style="height: 10px;" aria-label="Usage progress">
+                            <div class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                        <p class="text-muted small" id="usageText">You've used 0/10,000 tokens</p>
+                        
+                        <button class="btn btn-outline-primary mt-2" id="upgradeSubscriptionBtn">Upgrade Subscription</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right Column - Profile Form -->
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header bg-white">
+                    <h2 class="text-center mb-0" id="profileTitle">
+                        <i class="bi bi-person-circle"></i> User Profile
+                    </h2>
+                </div>
+                <div class="card-body">
+                    {% if messages %}
+                        {% for message in messages %}
+                            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                    
+                    <form method="post" class="needs-validation" novalidate enctype="multipart/form-data" id="profileForm">
+                        {% csrf_token %}
+                        
+                        <!-- Hidden file input for profile photo -->
+                        <input type="file" class="d-none" id="profile_photo" name="profile_photo" accept="image/jpeg,image/png,image/gif">
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <!-- Username -->
+                                <div class="mb-3">
+                                    <label for="username" class="form-label" id="usernameLabel">Username</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="bi bi-person"></i></span>
+                                        <input type="text" class="form-control" id="username" name="username" value="{{ user.username }}" readonly aria-describedby="usernameHelp">
+                                    </div>
+                                    <div class="form-text" id="usernameHelp">Username cannot be changed</div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <!-- Email -->
+                                <div class="mb-3">
+                                    <label for="email" class="form-label" id="emailLabel">Email</label>
+                                    <div class="input-group has-validation">
+                                        <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                                        <input type="email" class="form-control" id="email" name="email" value="{{ user.email }}" required aria-describedby="emailInvalid">
+                                        <div class="invalid-feedback" id="emailInvalid">Please provide a valid email address</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <!-- First Name -->
+                                <div class="mb-3">
+                                    <label for="first_name" class="form-label" id="firstNameLabel">First Name</label>
+                                    <input type="text" class="form-control" id="first_name" name="first_name" value="{{ user.first_name }}">
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <!-- Last Name -->
+                                <div class="mb-3">
+                                    <label for="last_name" class="form-label" id="lastNameLabel">Last Name</label>
+                                    <input type="text" class="form-control" id="last_name" name="last_name" value="{{ user.last_name }}">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <!-- Phone Number -->
+                                <div class="mb-3">
+                                    <label for="phone_number" class="form-label" id="phoneNumberLabel">Phone Number</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="bi bi-telephone"></i></span>
+                                        <input type="tel" class="form-control" id="phone_number" name="phone_number" value="{{ user.profile.phone_number|default:'' }}" placeholder="Enter your phone number">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <!-- Default Language -->
+                                <div class="mb-3">
+                                    <label for="default_language" class="form-label" id="defaultLanguageLabel">Default Language</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="bi bi-globe"></i></span>
+                                        <select class="form-select" id="default_language" name="default_language" aria-describedby="languageHelp">
+                                            <option value="en" {% if user.profile.default_language == 'en' %}selected{% endif %} id="englishOption">English</option>
+                                            <option value="ru" {% if user.profile.default_language == 'ru' %}selected{% endif %} id="russianOption">Russian</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-text" id="languageHelp">This will be your default interface language</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Social Media -->
+                        <div class="mb-3">
+                            <label for="social_media" class="form-label" id="socialMediaLabel">Activity & Social Media</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="bi bi-at"></i></span>
+                                <input type="text" class="form-control" id="social_media" name="social_media" value="{{ user.profile.social_media|default:'' }}" placeholder="@username">
+                            </div>
+                        </div>
+                        
+                        <!-- Change Password Section -->
+                        <div class="mt-5 mb-3">
+                            <h4 id="changePasswordTitle">Change Password</h4>
+                            <hr>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <!-- Current Password -->
+                                <div class="mb-3">
+                                    <label for="current_password" class="form-label" id="currentPasswordLabel">Current Password</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                                        <input type="password" class="form-control" id="current_password" name="current_password" aria-describedby="currentPasswordHelp">
+                                        <button class="btn btn-outline-secondary toggle-password" type="button" aria-label="Toggle password visibility">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div class="form-text" id="currentPasswordHelp">Leave blank if you don't want to change your password</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <!-- New Password -->
+                                <div class="mb-3">
+                                    <label for="new_password" class="form-label" id="newPasswordLabel">New Password</label>
+                                    <div class="input-group has-validation">
+                                        <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                                        <input type="password" class="form-control" id="new_password" name="new_password" minlength="8" aria-describedby="passwordStrength">
+                                        <button class="btn btn-outline-secondary toggle-password" type="button" aria-label="Toggle password visibility">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        <div class="invalid-feedback">Password must be at least 8 characters</div>
+                                    </div>
+                                    <div class="form-text" id="passwordStrength"></div>
+                                </div>
+                            </div>
+                            
+                            <div class="col-md-6">
+                                <!-- Confirm New Password -->
+                                <div class="mb-3">
+                                    <label for="confirm_password" class="form-label" id="confirmPasswordLabel">Confirm New Password</label>
+                                    <div class="input-group has-validation">
+                                        <span class="input-group-text"><i class="bi bi-lock-fill"></i></span>
+                                        <input type="password" class="form-control" id="confirm_password" name="confirm_password">
+                                        <button class="btn btn-outline-secondary toggle-password" type="button" aria-label="Toggle password visibility">
+                                            <i class="bi bi-eye"></i>
+                                        </button>
+                                        <div class="invalid-feedback" id="passwordMismatch">Passwords do not match</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Password strength meter -->
+                        <div class="mb-4 d-none" id="passwordStrengthContainer">
+                            <label class="form-label" id="passwordStrengthLabel">Password Strength</label>
+                            <div class="progress" style="height: 10px;" aria-label="Password strength">
+                                <div class="progress-bar" id="passwordStrengthBar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                            <div class="form-text" id="passwordStrengthText">Enter a new password</div>
+                        </div>
+                        
+                        <!-- Submit Buttons -->
+                        <div class="d-flex gap-2 mt-4">
+                            <button type="submit" class="btn btn-primary flex-grow-1" id="saveChangesBtn">
+                                <i class="bi bi-check-circle me-1"></i> Save Changes
+                            </button>
+                            <button type="reset" class="btn btn-outline-secondary" id="resetFormBtn">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i> Reset
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Language translations for user profile page
+const profileTranslations = {
+    en: {
+        profileTitle: 'User Profile',
+        username: 'Username',
+        usernameHelp: 'Username cannot be changed',
+        email: 'Email',
+        emailInvalid: 'Please provide a valid email address',
+        firstName: 'First Name',
+        lastName: 'Last Name',
+        phoneNumber: 'Phone Number',
+        socialMedia: 'Activity & Social Media',
+        defaultLanguage: 'Default Language',
+        languageHelp: 'This will be your default interface language',
+        english: 'English',
+        russian: 'Russian',
+        profilePhoto: 'Profile Photo',
+        changePassword: 'Change Password',
+        currentPassword: 'Current Password',
+        currentPasswordHelp: 'Leave blank if you don\'t want to change your password',
+        newPassword: 'New Password',
+        confirmPassword: 'Confirm New Password',
+        passwordMismatch: 'Passwords do not match',
+        saveChanges: 'Save Changes',
+        uploadPhoto: 'Upload Photo',
+        subscription: 'Subscription',
+        subscriptionPrice: '0₸ /month',
+        usage: 'You\'ve used 0/10,000 tokens',
+        upgradeSubscription: 'Upgrade Subscription',
+        resetForm: 'Reset',
+        memberSince: 'Member since:',
+        passwordStrength: 'Password Strength',
+        passwordWeak: 'Weak - Add more characters',
+        passwordMedium: 'Medium - Add numbers or symbols',
+        passwordStrong: 'Strong - Good password',
+        passwordVeryStrong: 'Very Strong - Excellent password',
+        enterNewPassword: 'Enter a new password',
+        passwordMinLength: 'Password must be at least 8 characters'
+    },
+    ru: {
+        profileTitle: 'Профиль пользователя',
+        username: 'Имя пользователя',
+        usernameHelp: 'Имя пользователя нельзя изменить',
+        email: 'Электронная почта',
+        emailInvalid: 'Пожалуйста, укажите действительный адрес электронной почты',
+        firstName: 'Имя',
+        lastName: 'Фамилия',
+        phoneNumber: 'Номер телефона',
+        socialMedia: 'Род деятельности и ваши соц. сети',
+        defaultLanguage: 'Язык по умолчанию',
+        languageHelp: 'Это будет язык интерфейса по умолчанию',
+        english: 'Английский',
+        russian: 'Русский',
+        profilePhoto: 'Фото профиля',
+        changePassword: 'Изменить пароль',
+        currentPassword: 'Текущий пароль',
+        currentPasswordHelp: 'Оставьте пустым, если не хотите менять пароль',
+        newPassword: 'Новый пароль',
+        confirmPassword: 'Подтвердите новый пароль',
+        passwordMismatch: 'Пароли не совпадают',
+        saveChanges: 'Сохранить изменения',
+        uploadPhoto: 'Загрузить фото',
+        subscription: 'Подписка',
+        subscriptionPrice: '0₸ /месяц',
+        usage: 'Вы использовали 0/10,000 токенов',
+        upgradeSubscription: 'Обновить подписку',
+        resetForm: 'Сбросить',
+        memberSince: 'Участник с:',
+        passwordStrength: 'Надежность пароля',
+        passwordWeak: 'Слабый - Добавьте больше символов',
+        passwordMedium: 'Средний - Добавьте цифры или символы',
+        passwordStrong: 'Надежный - Хороший пароль',
+        passwordVeryStrong: 'Очень надежный - Отличный пароль',
+        enterNewPassword: 'Введите новый пароль',
+        passwordMinLength: 'Пароль должен содержать не менее 8 символов'
+    }
+};
+
+// Apply language to profile page
+function applyProfileLanguage(lang) {
+    const translations = profileTranslations[lang];
+    
+    // Update page title and headers
+    document.getElementById('profileTitle').innerHTML = `<i class="bi bi-person-circle"></i> ${translations.profileTitle}`;
+    
+    // Update form labels
+    document.getElementById('usernameLabel').textContent = translations.username;
+    document.getElementById('usernameHelp').textContent = translations.usernameHelp;
+    document.getElementById('emailLabel').textContent = translations.email;
+    document.getElementById('emailInvalid').textContent = translations.emailInvalid;
+    document.getElementById('firstNameLabel').textContent = translations.firstName;
+    document.getElementById('lastNameLabel').textContent = translations.lastName;
+    document.getElementById('phoneNumberLabel').textContent = translations.phoneNumber;
+    document.getElementById('socialMediaLabel').textContent = translations.socialMedia;
+    document.getElementById('defaultLanguageLabel').textContent = translations.defaultLanguage;
+    document.getElementById('languageHelp').textContent = translations.languageHelp;
+    document.getElementById('englishOption').textContent = translations.english;
+    document.getElementById('russianOption').textContent = translations.russian;
+    
+    // Update password section
+    document.getElementById('changePasswordTitle').textContent = translations.changePassword;
+    document.getElementById('currentPasswordLabel').textContent = translations.currentPassword;
+    document.getElementById('currentPasswordHelp').textContent = translations.currentPasswordHelp;
+    document.getElementById('newPasswordLabel').textContent = translations.newPassword;
+    document.getElementById('confirmPasswordLabel').textContent = translations.confirmPassword;
+    document.getElementById('passwordMismatch').textContent = translations.passwordMismatch;
+    
+    // Update buttons
+    document.getElementById('saveChangesBtn').innerHTML = `<i class="bi bi-check-circle me-1"></i> ${translations.saveChanges}`;
+    document.getElementById('resetFormBtn').innerHTML = `<i class="bi bi-arrow-counterclockwise me-1"></i> ${translations.resetForm}`;
+    
+    // Update subscription section
+    document.getElementById('subscriptionTitle').textContent = translations.subscription;
+    document.getElementById('subscriptionPriceText').textContent = translations.subscriptionPrice;
+    document.getElementById('usageText').textContent = translations.usage;
+    document.getElementById('upgradeSubscriptionBtn').textContent = translations.upgradeSubscription;
+    
+    // Update member since text
+    const memberSinceEl = document.getElementById('memberSinceText');
+    const datePart = memberSinceEl.textContent.split(': ')[1];
+    memberSinceEl.textContent = `${translations.memberSince} ${datePart}`;
+    
+    // Update password strength elements
+    if (document.getElementById('passwordStrengthLabel')) {
+        document.getElementById('passwordStrengthLabel').textContent = translations.passwordStrength;
+        document.getElementById('passwordStrengthText').textContent = translations.enterNewPassword;
+    }
+}
+
+// Initialize language on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const currentLanguage = localStorage.getItem('appLanguage') || 'en';
+    applyProfileLanguage(currentLanguage);
+    
+    // Form validation
+    const form = document.querySelector('.needs-validation');
+    const newPassword = document.getElementById('new_password');
+    const confirmPassword = document.getElementById('confirm_password');
+    const passwordStrengthContainer = document.getElementById('passwordStrengthContainer');
+    const passwordStrengthBar = document.getElementById('passwordStrengthBar');
+    const passwordStrengthText = document.getElementById('passwordStrengthText');
+    
+    // Password strength checker
+    function checkPasswordStrength(password) {
+        if (!password) return 0;
+        
+        let strength = 0;
+        
+        // Length check
+        if (password.length >= 8) strength += 25;
+        if (password.length >= 12) strength += 15;
+        
+        // Character type checks
+        if (/[a-z]/.test(password)) strength += 10;
+        if (/[A-Z]/.test(password)) strength += 15;
+        if (/[0-9]/.test(password)) strength += 15;
+        if (/[^a-zA-Z0-9]/.test(password)) strength += 20;
+        
+        return Math.min(100, strength);
+    }
+    
+    // Update password strength indicator
+    newPassword.addEventListener('input', function() {
+        const password = this.value;
+        const strength = checkPasswordStrength(password);
+        
+        if (password.length > 0) {
+            passwordStrengthContainer.classList.remove('d-none');
+            
+            // Update progress bar
+            passwordStrengthBar.style.width = `${strength}%`;
+            passwordStrengthBar.setAttribute('aria-valuenow', strength);
+            
+            // Update color based on strength
+            passwordStrengthBar.className = 'progress-bar';
+            if (strength < 30) {
+                passwordStrengthBar.classList.add('bg-danger');
+                passwordStrengthText.textContent = profileTranslations[currentLanguage].passwordWeak;
+            } else if (strength < 60) {
+                passwordStrengthBar.classList.add('bg-warning');
+                passwordStrengthText.textContent = profileTranslations[currentLanguage].passwordMedium;
+            } else if (strength < 80) {
+                passwordStrengthBar.classList.add('bg-info');
+                passwordStrengthText.textContent = profileTranslations[currentLanguage].passwordStrong;
+            } else {
+                passwordStrengthBar.classList.add('bg-success');
+                passwordStrengthText.textContent = profileTranslations[currentLanguage].passwordVeryStrong;
+            }
+        } else {
+            passwordStrengthContainer.classList.add('d-none');
+        }
+    });
+    
+    // Form validation
+    form.addEventListener('submit', function(event) {
+        if (newPassword.value !== confirmPassword.value && newPassword.value !== '') {
+            confirmPassword.setCustomValidity('Passwords do not match');
+            event.preventDefault();
+            event.stopPropagation();
+        } else {
+            confirmPassword.setCustomValidity('');
+        }
+        
+        if (newPassword.value !== '' && newPassword.value.length < 8) {
+            newPassword.setCustomValidity('Password must be at least 8 characters');
+            event.preventDefault();
+            event.stopPropagation();
+        } else {
+            newPassword.setCustomValidity('');
+        }
+        
+        if (!form.checkValidity()) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        
+        form.classList.add('was-validated');
+    });
+    
+    // Clear custom validity when typing
+    confirmPassword.addEventListener('input', function() {
+        if (newPassword.value === confirmPassword.value) {
+            confirmPassword.setCustomValidity('');
+        } else {
+            confirmPassword.setCustomValidity('Passwords do not match');
+        }
+    });
+    
+    // Handle profile photo change
+    document.getElementById('changePhotoBtn').addEventListener('click', function() {
+        document.getElementById('profile_photo').click();
+    });
+    
+    // Preview uploaded image
+    document.getElementById('profile_photo').addEventListener('change', function() {
+        if (this.files && this.files[0]) {
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                // Check if placeholder exists and hide it
+                const placeholder = document.getElementById('profilePhotoPlaceholder');
+                if (placeholder) placeholder.style.display = 'none';
+                
+                // Create or update image preview
+                let imgDisplay = document.getElementById('profilePhotoDisplay');
+                if (!imgDisplay) {
+                    imgDisplay = document.createElement('img');
+                    imgDisplay.id = 'profilePhotoDisplay';
+                    imgDisplay.className = 'rounded-circle img-fluid';
+                    imgDisplay.alt = 'Profile Photo';
+                    imgDisplay.style.width = '150px';
+                    imgDisplay.style.height = '150px';
+                    imgDisplay.style.objectFit = 'cover';
+                    
+                    const container = document.querySelector('.position-relative');
+                    container.prepend(imgDisplay);
+                }
+                
+                imgDisplay.src = e.target.result;
+            };
+            
+            reader.readAsDataURL(this.files[0]);
+        }
+    });
+    
+    // Toggle password visibility
+    document.querySelectorAll('.toggle-password').forEach(button => {
+        button.addEventListener('click', function() {
+            const input = this.previousElementSibling;
+            const icon = this.querySelector('i');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.classList.remove('bi-eye');
+                icon.classList.add('bi-eye-slash');
+            } else {
+                input.type = 'password';
+                icon.classList.remove('bi-eye-slash');
+                icon.classList.add('bi-eye');
+            }
+        });
+    });
+    
+    // Reset form confirmation
+    document.getElementById('resetFormBtn').addEventListener('click', function(e) {
+        if (!confirm('Are you sure you want to reset all changes?')) {
+            e.preventDefault();
+        }
+    });
+});
+
+// Listen for language changes
+document.addEventListener('languageChanged', function(e) {
+    applyProfileLanguage(e.detail.language);
+});
+</script>
+{% endblock %} 
