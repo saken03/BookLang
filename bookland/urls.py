@@ -28,4 +28,6 @@ urlpatterns = [
     path('accounts/login/', pdf_views.login_view, name='login'),
     path('accounts/signup/', pdf_views.signup_view, name='signup'),
     path('accounts/logout/', pdf_views.logout_view, name='logout'),
+    # Social auth URLs
+    path('social-auth/', include('social_django.urls', namespace='social')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

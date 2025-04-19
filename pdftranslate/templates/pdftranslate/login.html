@@ -323,6 +323,59 @@
             width: 100%;
             margin-bottom: 1rem;
         }
+
+        /* Google sign-in button styles */
+        .google-btn {
+            background-color: #ffffff;
+            border: 1px solid #dadce0;
+            border-radius: 4px;
+            color: #3c4043;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Google Sans', arial, sans-serif;
+            font-size: 14px;
+            font-weight: 500;
+            height: 40px;
+            letter-spacing: 0.25px;
+            margin-bottom: 16px;
+            padding: 0 12px;
+            text-align: center;
+            transition: background-color 0.3s;
+            width: 100%;
+        }
+
+        .google-btn:hover {
+            background-color: #f8f9fa;
+            border-color: #dadce0;
+        }
+
+        .google-btn img {
+            margin-right: 12px;
+            width: 18px;
+            height: 18px;
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: '';
+            flex: 1;
+            border-bottom: 1px solid #e4e6e8;
+        }
+
+        .divider span {
+            padding: 0 10px;
+            color: #666;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -416,6 +469,15 @@
                             </div>
                         </form>
                         <hr>
+                        <div class="divider">
+                            <span>or</span>
+                        </div>
+
+                        <a href="{% url 'social:begin' 'google-oauth2' %}" class="google-btn">
+                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google logo">
+                            Sign in with Google
+                        </a>
+
                         <p class="text-center">
                             Don't have an account? <a href="{% url 'signup' %}">Sign up</a>
                         </p>
