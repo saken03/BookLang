@@ -14,6 +14,14 @@
             <div class="card-body">
                 <form method="post" enctype="multipart/form-data" id="uploadForm" class="upload-form">
                     {% csrf_token %}
+                    <div class="mb-4">
+                        <label for="target_language" class="form-label">Select Target Language</label>
+                        <select class="form-select" id="target_language" name="target_language" required>
+                            {% for code, name in language_choices %}
+                                <option value="{{ code }}">{{ name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div class="upload-zone" id="dropZone">
                         <i class="bi bi-file-earmark-pdf display-4 text-primary mb-3"></i>
                         <h4>Drag and drop your PDF here</h4>

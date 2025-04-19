@@ -12,4 +12,5 @@ urlpatterns = [
     path('flashcards/review/<int:pk>/', views.flashcard_review, name='flashcard_review'),
     path('flashcards/create/<int:document_id>/', views.create_flashcards, name='create_flashcards'),
     path('flashcards/<int:pk>/reset/', views.reset_flashcard, name='reset_flashcard'),
+    path('progress/<int:document_id>/', views.sse_progress, name='sse_progress'),
 ] 

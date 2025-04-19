@@ -4,7 +4,7 @@ from django.contrib.auth import login, authenticate, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import UserCreationForm
 from django.core.files.storage import default_storage
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.db.models import Q
 from .models import PDFDocument, WordEntry, Flashcard
@@ -16,6 +16,9 @@ import logging
 import os
 from datetime import datetime, timedelta
 from django.db import models
+import json
+import asyncio
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,7 @@ def upload_pdf(request):
             return redirect('upload_pdf')
         
         pdf_file = request.FILES['pdf_file']
+        target_language = request.POST.get('target_language', 'ru')
         
         # Check if it's actually a PDF file
         if not pdf_file.name.lower().endswith('.pdf'):
@@ -112,6 +116,7 @@ def upload_pdf(request):
             document = PDFDocument.objects.create(
                 user=request.user,
                 title=pdf_file.name,
+                target_language=target_language,
                 translation_status='pending'
             )
             
@@ -142,7 +147,11 @@ def upload_pdf(request):
         
         return redirect('pdf_list')
     
-    return render(request, 'pdftranslate/upload.html')
+    # For GET requests, pass language choices to the template
+    context = {
+        'language_choices': PDFDocument.LANGUAGE_CHOICES
+    }
+    return render(request, 'pdftranslate/upload.html', context)
 
 @login_required
 def get_translation_progress(request, pk):
@@ -380,3 +389,60 @@ def reset_flashcard(request, pk):
         'status': 'success',
         'message': 'Flashcard has been reset'
     })
+
+@login_required
+def sse_progress(request, document_id):
+    """Server-Sent Events endpoint for translation progress."""
+    def event_stream():
+        document = get_object_or_404(PDFDocument, id=document_id, user=request.user)
+        last_progress = -1
+        
+        while True:
+            try:
+                # Get current progress
+                document.refresh_from_db()
+                current_progress = document.translation_progress
+                current_words = document.translated_words
+                total_words = document.total_words
+                status = document.translation_status
+                
+                # Send initial state and heartbeat
+                if last_progress == -1:
+                    yield f"event: state\ndata: {json.dumps({'status': status, 'progress': current_progress, 'translated_words': current_words, 'total_words': total_words})}\n\n"
+                    yield "event: heartbeat\ndata: ping\n\n"
+                
+                # Only send update if progress changed
+                elif current_progress != last_progress:
+                    data = {
+                        'status': status,
+                        'progress': current_progress,
+                        'translated_words': current_words,
+                        'total_words': total_words
+                    }
+                    yield f"data: {json.dumps(data)}\n\n"
+                else:
+                    # Send heartbeat every 15 seconds to keep connection alive
+                    yield "event: heartbeat\ndata: ping\n\n"
+                
+                last_progress = current_progress
+                
+                # Stop if translation is complete or failed
+                if status in ['completed', 'failed']:
+                    break
+                
+                # Wait before next check
+                time.sleep(0.5)
+                
+            except Exception as e:
+                logger.error(f"Error in SSE stream: {str(e)}")
+                break
+
+    response = StreamingHttpResponse(
+        event_stream(),
+        content_type='text/event-stream'
+    )
+    # Add headers to prevent buffering
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'
+    response['Connection'] = 'keep-alive'
+    return response

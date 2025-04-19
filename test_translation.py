@@ -15,11 +15,8 @@ django.setup()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(levelname)s %(asctime)s %(module)s %(message)s',
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-    ]
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
 logger = logging.getLogger(__name__)
@@ -36,32 +33,28 @@ def test_translation():
         logger.info("Initializing translation service")
         translation_service = TranslationService()
         
-        # Test words
-        test_words = ["hello", "world", "book", "language", "translation"]
+        # Test languages and words
+        test_cases = [
+            ("en", "ru", ["hello", "world", "book"]),
+            ("en", "es", ["computer", "programming", "language"]),
+            ("en", "fr", ["artificial", "intelligence", "learning"])
+        ]
         
-        # Test individual translations
-        logger.info("Testing individual translations")
-        for word in test_words:
+        # Test translations
+        for source_lang, target_lang, words in test_cases:
+            logger.info(f"\nTesting translation from {source_lang} to {target_lang}")
+            
+            # Test batch translation
             try:
-                translation = translation_service.translate_text(word)
-                logger.info(f"'{word}' -> '{translation}'")
-                if not translation:
-                    logger.error(f"Translation failed for '{word}'")
+                translations = translation_service.batch_translate(words, target_lang)
+                for word, translation in zip(words, translations):
+                    logger.info(f"'{word}' -> '{translation}'")
+                    if not translation:
+                        logger.error(f"Translation failed for '{word}'")
             except Exception as e:
-                logger.error(f"Error translating '{word}': {str(e)}")
+                logger.error(f"Error in batch translation: {str(e)}")
         
-        # Test batch translation
-        logger.info("Testing batch translation")
-        try:
-            translations = translation_service.batch_translate(test_words)
-            for word, translation in zip(test_words, translations):
-                logger.info(f"Batch: '{word}' -> '{translation}'")
-                if not translation:
-                    logger.error(f"Batch translation failed for '{word}'")
-        except Exception as e:
-            logger.error(f"Error in batch translation: {str(e)}")
-        
-        logger.info("Translation service test completed")
+        logger.info("\nTranslation service test completed")
         
     except Exception as e:
         logger.error(f"Test failed: {str(e)}")

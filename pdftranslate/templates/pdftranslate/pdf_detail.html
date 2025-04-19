@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>{{ document.title }}</h2>
+    
+    <!-- Progress section -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Translation Progress</h5>
+            <div class="progress mb-3">
+                <div id="progress-bar" 
+                     class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" 
+                     style="width: {{ document.translation_progress }}%">
+                    {{ document.translation_progress }}%
+                </div>
+            </div>
+            <p id="word-count" class="mb-0">
+                {{ document.translated_words }} / {{ document.total_words }} words
+            </p>
+        </div>
+    </div>
+    
+    <!-- Rest of your template content -->
+</div>
+
+{% block extra_js %}
+<script>
+    // SSE connection
+    const documentId = {{ document.id }};
+    const eventSource = new EventSource(`/pdftranslate/progress/${documentId}/`);
+
+    // Handle SSE events
+    eventSource.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        // Update progress bar
+        const progressBar = document.getElementById('progress-bar');
+        progressBar.style.width = `${data.progress}%`;
+        progressBar.textContent = `${data.progress}%`;
+        
+        // Update word count
+        const wordCount = document.getElementById('word-count');
+        wordCount.textContent = `${data.translated_words} / ${data.total_words} words`;
+        
+        // If translation is complete, close connection and reload
+        if (data.progress === 100) {
+            eventSource.close();
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        }
+    };
+
+    eventSource.onerror = function(event) {
+        console.error('SSE error:', event);
+        eventSource.close();
+    };
+
+    // Clean up when leaving the page
+    window.addEventListener('beforeunload', function() {
+        eventSource.close();
+    });
+</script>
+{% endblock %}
+{% endblock %} 

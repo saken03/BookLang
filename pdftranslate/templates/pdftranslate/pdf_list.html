@@ -150,96 +150,6 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    function updateProgress(docId) {
-        return fetch(`/progress/${docId}/`)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                const progressBar = document.getElementById(`progress-${docId}`);
-                const progressText = document.getElementById(`progress-text-${docId}`);
-                const statusBadge = document.querySelector(`#progress-${docId}`).closest('tr').querySelector('.badge');
-                
-                if (!progressBar || !progressText || !statusBadge) {
-                    console.error('Required elements not found');
-                    return false;
-                }
-
-                // Animate progress bar smoothly
-                progressBar.style.transition = 'width 0.5s ease-in-out';
-                progressBar.style.width = `${data.progress}%`;
-                progressBar.setAttribute('aria-valuenow', data.progress);
-                progressBar.textContent = `${data.progress}%`;
-
-                // Update word count with animation
-                if (data.total_words > 0) {
-                    const currentWords = parseInt(progressText.getAttribute('data-words') || '0');
-                    const targetWords = data.translated_words;
-                    
-                    if (currentWords !== targetWords) {
-                        // Animate word count
-                        const duration = 500; // 500ms animation
-                        const start = performance.now();
-                        
-                        function updateWordCount(currentTime) {
-                            const elapsed = currentTime - start;
-                            const progress = Math.min(elapsed / duration, 1);
-                            
-                            const currentCount = Math.round(
-                                currentWords + (targetWords - currentWords) * progress
-                            );
-                            
-                            progressText.textContent = `${currentCount} / ${data.total_words} words`;
-                            progressText.setAttribute('data-words', currentCount);
-                            
-                            if (progress < 1) {
-                                requestAnimationFrame(updateWordCount);
-                            }
-                        }
-                        
-                        requestAnimationFrame(updateWordCount);
-                    }
-                }
-
-                // Update status badge and progress bar animation
-                let shouldContinue = true;
-                
-                switch (data.status) {
-                    case 'pending':
-                        statusBadge.className = 'badge bg-secondary';
-                        statusBadge.textContent = 'Pending';
-                        progressBar.classList.add('progress-bar-animated');
-                        break;
-                    case 'in_progress':
-                        statusBadge.className = 'badge bg-warning';
-                        statusBadge.textContent = 'In Progress';
-                        progressBar.classList.add('progress-bar-animated');
-                        break;
-                    case 'completed':
-                        statusBadge.className = 'badge bg-success';
-                        statusBadge.textContent = 'Completed';
-                        progressBar.classList.remove('progress-bar-animated');
-                        shouldContinue = false;
-                        break;
-                    case 'failed':
-                        statusBadge.className = 'badge bg-danger';
-                        statusBadge.textContent = 'Failed';
-                        progressBar.classList.remove('progress-bar-animated');
-                        shouldContinue = false;
-                        break;
-                }
-
-                return shouldContinue;
-            })
-            .catch(error => {
-                console.error('Error updating progress:', error);
-                return false;
-            });
-    }
-
     // Find all documents that need progress tracking
     const documents = document.querySelectorAll('.progress-bar');
     
@@ -249,21 +159,92 @@ document.addEventListener('DOMContentLoaded', function() {
         const status = statusBadge.textContent.trim().toLowerCase();
         
         if (status === 'pending' || status === 'in progress') {
-            // Initial update
-            updateProgress(docId);
+            let retryCount = 0;
+            const maxRetries = 3;
             
-            // Set up polling with a shorter interval for smoother updates
-            const pollInterval = setInterval(async () => {
-                const shouldContinue = await updateProgress(docId);
-                if (!shouldContinue) {
-                    clearInterval(pollInterval);
+            function connectSSE() {
+                const eventSource = new EventSource(`/pdftranslate/progress/${docId}/`);
+                
+                // Handle initial state
+                eventSource.addEventListener('state', function(event) {
+                    const data = JSON.parse(event.data);
+                    updateUI(data);
+                });
+                
+                // Handle regular updates
+                eventSource.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    updateUI(data);
+                };
+                
+                // Handle heartbeat
+                eventSource.addEventListener('heartbeat', function(event) {
+                    // Connection is alive
+                    retryCount = 0;
+                });
+                
+                eventSource.onerror = function(event) {
+                    console.error('SSE error:', event);
+                    eventSource.close();
+                    
+                    // Attempt to reconnect if not at max retries
+                    if (retryCount < maxRetries) {
+                        retryCount++;
+                        console.log(`Retrying connection (${retryCount}/${maxRetries})...`);
+                        setTimeout(connectSSE, 1000 * retryCount);
+                    }
+                };
+                
+                // Clean up when leaving the page
+                window.addEventListener('beforeunload', () => {
+                    eventSource.close();
+                });
+            }
+            
+            function updateUI(data) {
+                // Update progress bar
+                progressBar.style.transition = 'width 0.5s ease-in-out';
+                progressBar.style.width = `${data.progress}%`;
+                progressBar.setAttribute('aria-valuenow', data.progress);
+                progressBar.textContent = `${data.progress}%`;
+                
+                // Update word count
+                const progressText = document.getElementById(`progress-text-${docId}`);
+                if (progressText && data.total_words > 0) {
+                    progressText.textContent = `${data.translated_words} / ${data.total_words} words`;
                 }
-            }, 500); // Poll every 500ms for smoother updates
+                
+                // Update status badge
+                if (statusBadge) {
+                    switch (data.status) {
+                        case 'pending':
+                            statusBadge.className = 'badge bg-secondary';
+                            statusBadge.textContent = 'Pending';
+                            progressBar.classList.add('progress-bar-animated');
+                            break;
+                        case 'in_progress':
+                            statusBadge.className = 'badge bg-warning';
+                            statusBadge.textContent = 'In Progress';
+                            progressBar.classList.add('progress-bar-animated');
+                            break;
+                        case 'completed':
+                            statusBadge.className = 'badge bg-success';
+                            statusBadge.textContent = 'Completed';
+                            progressBar.classList.remove('progress-bar-animated');
+                            eventSource.close();
+                            break;
+                        case 'failed':
+                            statusBadge.className = 'badge bg-danger';
+                            statusBadge.textContent = 'Failed';
+                            progressBar.classList.remove('progress-bar-animated');
+                            eventSource.close();
+                            break;
+                    }
+                }
+            }
             
-            // Clean up interval when leaving the page
-            window.addEventListener('beforeunload', () => {
-                clearInterval(pollInterval);
-            });
+            // Start SSE connection
+            connectSSE();
         }
     });
 });

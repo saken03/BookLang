@@ -8,9 +8,13 @@ https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/
 """
 
 import os
+import django
 
-from django.core.asgi import get_asgi_application
-
+# Set up Django settings before importing other modules
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'bookland.settings')
+django.setup()  # Initialize Django
+
+# Import after Django setup
+from django.core.asgi import get_asgi_application
 
 application = get_asgi_application()

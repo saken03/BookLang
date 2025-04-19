@@ -3,9 +3,28 @@ from django.utils import timezone
 from django.contrib.auth.models import User
 from datetime import timedelta
 import math
+from django.db.models import Count
+import re
 
 
 class PDFDocument(models.Model):
+    LANGUAGE_CHOICES = [
+        ('ru', 'Russian'),
+        ('es', 'Spanish'),
+        ('fr', 'French'),
+        ('de', 'German'),
+        ('it', 'Italian'),
+        ('pt', 'Portuguese'),
+        ('nl', 'Dutch'),
+        ('pl', 'Polish'),
+        ('tr', 'Turkish'),
+        ('ar', 'Arabic'),
+        ('hi', 'Hindi'),
+        ('zh', 'Chinese'),
+        ('ja', 'Japanese'),
+        ('ko', 'Korean'),
+    ]
+
     user = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -17,6 +36,11 @@ class PDFDocument(models.Model):
     pdf_file = models.FileField(upload_to='pdfs/')
     uploaded_at = models.DateTimeField(default=timezone.now)
     extracted_text = models.TextField(blank=True, null=True)
+    target_language = models.CharField(
+        max_length=5,
+        choices=LANGUAGE_CHOICES,
+        default='ru'
+    )
     translation_status = models.CharField(
         max_length=20,
         choices=[
@@ -56,6 +80,70 @@ class PDFDocument(models.Model):
             flashcard__isnull=True
         )
 
+    def get_priority_words(self, min_length=3, max_length=20, min_frequency=1):
+        """
+        Get words prioritized for flashcard creation.
+        
+        Args:
+            min_length (int): Minimum word length to include
+            max_length (int): Maximum word length to include
+            min_frequency (int): Minimum number of times a word appears
+            
+        Returns:
+            QuerySet of WordEntry objects sorted by priority
+        """
+        # Get word frequency
+        word_frequency = (
+            self.words
+            .values('original_text')
+            .annotate(frequency=Count('original_text'))
+            .filter(frequency__gte=min_frequency)
+        )
+        
+        # Filter words by length and content
+        priority_words = (
+            self.words
+            .filter(
+                original_text__in=[w['original_text'] for w in word_frequency],
+                translated_text__isnull=False,  # Must have translation
+                flashcard__isnull=True,  # No flashcard yet
+            )
+            .exclude(
+                # Exclude words that are too short/long or contain numbers/special chars
+                original_text__regex=(
+                    r'^.{0,' + str(min_length-1) + r'}$|'  # too short
+                    r'^.{' + str(max_length+1) + r',}$|'   # too long
+                    r'^[0-9]+$|'                           # only numbers
+                    r'[^a-zA-Z]'                           # non-letters
+                )
+            )
+            .distinct('original_text')  # One entry per unique word
+        )
+        
+        return priority_words
+
+    def create_priority_flashcards(self, user, limit=None):
+        """
+        Create flashcards for priority words.
+        
+        Args:
+            user (User): The user to create flashcards for
+            limit (int, optional): Maximum number of flashcards to create
+            
+        Returns:
+            int: Number of flashcards created
+        """
+        priority_words = self.get_priority_words()
+        if limit:
+            priority_words = priority_words[:limit]
+            
+        created_count = 0
+        for word in priority_words:
+            if word.create_flashcard(user):
+                created_count += 1
+                
+        return created_count
+
 
 class WordEntry(models.Model):
     document = models.ForeignKey(PDFDocument, on_delete=models.CASCADE, related_name='words')
@@ -85,6 +173,35 @@ class WordEntry(models.Model):
     @property
     def has_flashcard(self):
         return hasattr(self, 'flashcard')
+
+    @property
+    def frequency(self):
+        """Get the frequency of this word in the document."""
+        return WordEntry.objects.filter(
+            document=self.document,
+            original_text=self.original_text
+        ).count()
+
+    @property
+    def is_priority(self):
+        """Check if this word should be prioritized for flashcards."""
+        # Word should be 3-20 characters
+        if not (3 <= len(self.original_text) <= 20):
+            return False
+            
+        # Should only contain letters
+        if not re.match(r'^[a-zA-Z]+$', self.original_text):
+            return False
+            
+        # Should have translation
+        if not self.translated_text:
+            return False
+            
+        # Should appear at least once
+        if self.frequency < 1:
+            return False
+            
+        return True
 
 
 class Flashcard(models.Model):

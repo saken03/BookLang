@@ -8,14 +8,30 @@ from .translation_service import TranslationService
 from .models import PDFDocument, WordEntry
 from django.db import transaction
 import time
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 logger = logging.getLogger(__name__)
+channel_layer = get_channel_layer()
 
 
 def clean_text(text):
     """Clean and split text into words."""
     words = re.findall(r'\b\w+\b', text.lower())
     return [w for w in words if len(w) > 1]
+
+
+def send_progress_update(document_id, progress, translated_words, total_words):
+    """Send progress update through WebSocket."""
+    async_to_sync(channel_layer.group_send)(
+        f'translation_{document_id}',
+        {
+            'type': 'translation_progress',
+            'progress': progress,
+            'translated_words': translated_words,
+            'total_words': total_words
+        }
+    )
 
 
 class TranslationTask(threading.Thread):
@@ -30,9 +46,11 @@ class TranslationTask(threading.Thread):
             logger.info(f"Starting translation for document {self.document_id}")
             document = PDFDocument.objects.select_for_update().get(id=self.document_id)
             
-            # Set status to in_progress
+            # Set status to in_progress and send initial progress
             document.translation_status = 'in_progress'
+            document.translation_progress = 0
             document.save()
+            send_progress_update(self.document_id, 0, 0, 0)
             
             # Initialize translation service
             logger.info(f"Initializing translation service for document {self.document_id}")
@@ -43,6 +61,7 @@ class TranslationTask(threading.Thread):
                 logger.error(f"Failed to initialize translation service: {str(e)}")
                 document.translation_status = 'failed'
                 document.save()
+                send_progress_update(self.document_id, 0, 0, 0)
                 return
             
             # Read PDF content
@@ -54,6 +73,7 @@ class TranslationTask(threading.Thread):
                 logger.error(f"Failed to read PDF: {str(e)}")
                 document.translation_status = 'failed'
                 document.save()
+                send_progress_update(self.document_id, 0, 0, 0)
                 return
             
             # First pass: count total words
@@ -74,6 +94,7 @@ class TranslationTask(threading.Thread):
                 logger.error(f"No words found in document {self.document_id}")
                 document.translation_status = 'failed'
                 document.save()
+                send_progress_update(self.document_id, 0, 0, 0)
                 return
                 
             document.total_words = total_words
@@ -84,23 +105,30 @@ class TranslationTask(threading.Thread):
             translated_words = 0
             extracted_text = []
             
+            # Configuration for batch processing
+            BATCH_SIZE = 50  # Increased from 5 to 50
+            word_entries = []  # Collect entries for bulk creation
+            
             for page_num, words in enumerate(words_by_page, 1):
                 text = pdf_reader.pages[page_num - 1].extract_text()
                 extracted_text.append(text)
                 
                 if words:
-                    # Translate in smaller batches for more frequent updates
-                    batch_size = 5  # Translate 5 words at a time
-                    for i in range(0, len(words), batch_size):
-                        batch = words[i:i + batch_size]
-                        logger.info(f"Translating batch of {len(batch)} words from page {page_num}")
+                    # Process in larger batches
+                    for i in range(0, len(words), BATCH_SIZE):
+                        batch = words[i:i + BATCH_SIZE]
+                        logger.info(
+                            f"Translating batch of {len(batch)} words from page {page_num}"
+                        )
                         
                         try:
-                            translations = translation_service.batch_translate(batch)
+                            translations = translation_service.batch_translate(
+                                batch,
+                                target_lang=document.target_language
+                            )
                             logger.info(f"Successfully translated batch: {translations}")
                             
                             # Create WordEntry instances for this batch
-                            word_entries = []
                             for pos, (word, trans) in enumerate(zip(batch, translations), start=i):
                                 if trans:
                                     word_entries.append(
@@ -114,34 +142,44 @@ class TranslationTask(threading.Thread):
                                     )
                                     translated_words += 1
                             
-                            if word_entries:
-                                WordEntry.objects.bulk_create(word_entries)
-                            
-                            # Update progress more frequently
+                            # Update progress and send update
                             progress = int((translated_words / total_words) * 100)
                             document.translation_progress = min(progress, 99)
                             document.translated_words = translated_words
                             document.save()
+                            send_progress_update(
+                                self.document_id,
+                                document.translation_progress,
+                                translated_words,
+                                total_words
+                            )
                             
-                            # Add a small delay to make progress visible
-                            time.sleep(0.5)
+                            # Bulk create entries periodically
+                            if len(word_entries) >= BATCH_SIZE * 5:
+                                WordEntry.objects.bulk_create(word_entries)
+                                word_entries = []
+                            
                         except Exception as e:
                             logger.error(f"Error translating batch: {str(e)}")
                             logger.error(traceback.format_exc())
             
+            # Create any remaining word entries
+            if word_entries:
+                WordEntry.objects.bulk_create(word_entries)
+            
             # Save the complete extracted text
             document.extracted_text = '\n'.join(extracted_text)
             
-            # Update final status
-            if translated_words == 0:
-                logger.error(f"No words were translated for document {self.document_id}")
-                document.translation_status = 'failed'
-            else:
-                logger.info(f"Translation completed for document {self.document_id}. Translated {translated_words} words.")
-                document.translation_status = 'completed'
-                document.translation_progress = 100
-            
+            # Update final status and progress
+            document.translation_status = 'completed'
+            document.translation_progress = 100
+            document.translated_words = translated_words
             document.save()
+            
+            # Send final progress update
+            send_progress_update(self.document_id, 100, translated_words, total_words)
+            
+            logger.info(f"Translation completed for document {self.document_id}")
             
         except Exception as e:
             error_message = f"Translation task error for document {self.document_id}: {str(e)}"
@@ -151,10 +189,12 @@ class TranslationTask(threading.Thread):
                 if document:
                     document.translation_status = 'failed'
                     document.save()
+                    send_progress_update(self.document_id, 0, 0, 0)
                 else:
                     document = PDFDocument.objects.get(id=self.document_id)
                     document.translation_status = 'failed'
                     document.save()
+                    send_progress_update(self.document_id, 0, 0, 0)
             except Exception as inner_e:
                 logger.error(f"Failed to update document status: {str(inner_e)}")
 
