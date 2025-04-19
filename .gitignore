@@ -44,4 +44,4 @@ google_cred.json
 
 # Static and Media
 staticfiles/
-media/ 
+media/ db.sqlite3
