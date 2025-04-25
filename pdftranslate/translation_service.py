@@ -29,26 +29,51 @@ class TranslationService:
     def batch_translate(self, texts, source_lang='en', target_lang='ru'):
         """
         Translate a batch of texts using OpenAI's API with optimized batching
-        and caching
+        and caching. Only translates valid words (3+ characters, alphabetic).
         """
         try:
+            # Filter out invalid words
+            valid_texts = [
+                text for text in texts
+                if text and isinstance(text, str) and
+                len(text) >= 3 and text.isalpha()
+            ]
+            
+            if not valid_texts:
+                logger.warning("No valid words to translate in batch")
+                return [None] * len(texts)
+            
             # Check cache first
-            cache_key = (
-                f"translation_{source_lang}_{target_lang}_{hash(tuple(texts))}"
-            )
+            key_parts = [
+                'translation',
+                source_lang,
+                target_lang,
+                str(hash(tuple(valid_texts)))
+            ]
+            cache_key = '_'.join(key_parts)
             cached = cache.get(cache_key)
             if cached:
                 logger.info("Retrieved translations from cache")
-                return cached
+                # Map cached translations back to original texts
+                result = []
+                valid_idx = 0
+                for text in texts:
+                    if (text and isinstance(text, str) and
+                            len(text) >= 3 and text.isalpha()):
+                        result.append(cached[valid_idx])
+                        valid_idx += 1
+                    else:
+                        result.append(None)
+                return result
 
-            logger.info("Batch translating %d texts", len(texts))
+            logger.info("Batch translating %d words", len(valid_texts))
             
             # Prepare optimized prompt
             prompt = (
-                f"Translate these {len(texts)} words from {source_lang} "
+                f"Translate these {len(valid_texts)} words from {source_lang} "
                 f"to {target_lang}. Return translations in JSON format: "
                 "{'translations': ['word1', 'word2', ...]}\n\n"
-                f"Words: {', '.join(texts)}"
+                f"Words: {', '.join(valid_texts)}"
             )
 
             response = self.client.chat.completions.create(
@@ -63,22 +88,33 @@ class TranslationService:
                 result = json.loads(content)
                 translations = result.get('translations', [])
                 
-                # Ensure we have the same number of translations as input texts
-                if len(translations) < len(texts):
+                # Ensure we have the same number of translations as valid texts
+                if len(translations) < len(valid_texts):
                     logger.warning(
                         "Received fewer translations than expected. "
                         "Padding with None."
                     )
                     translations.extend(
-                        [None] * (len(texts) - len(translations))
+                        [None] * (len(valid_texts) - len(translations))
                     )
-                elif len(translations) > len(texts):
+                elif len(translations) > len(valid_texts):
                     logger.warning("Received extra translations. Truncating.")
-                    translations = translations[:len(texts)]
+                    translations = translations[:len(valid_texts)]
 
                 # Cache successful translations
                 cache.set(cache_key, translations, timeout=3600)
-                return translations
+                
+                # Map translations back to original texts
+                result = []
+                valid_idx = 0
+                for text in texts:
+                    if (text and isinstance(text, str) and
+                            len(text) >= 3 and text.isalpha()):
+                        result.append(translations[valid_idx])
+                        valid_idx += 1
+                    else:
+                        result.append(None)
+                return result
 
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
                 logger.error(

@@ -1,0 +1,46 @@
+{% extends 'pdftranslate/base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">{{ document.title }} - Translated Version</h1>
+    
+    {% if not translation_complete %}
+        <div class="alert alert-warning">
+            Translation is still in progress ({{ document.translation_progress }}% complete).
+            The content below may be incomplete.
+        </div>
+    {% endif %}
+    
+    <div class="card">
+        <div class="card-body">
+            <div class="translation-content">
+                {% for page_num, content in pages.items %}
+                    <div class="page mb-4">
+                        <h4 class="text-muted mb-3">Page {{ page_num }}</h4>
+                        <p class="text-justify">{{ content }}</p>
+                    </div>
+                    {% if not forloop.last %}
+                        <hr>
+                    {% endif %}
+                {% empty %}
+                    <p class="text-center text-muted">No translated content available yet.</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="mt-4">
+        <a href="{% url 'pdf_list' %}" class="btn btn-secondary">Back to Documents</a>
+    </div>
+</div>
+
+<style>
+    .translation-content {
+        font-size: 1.1em;
+        line-height: 1.6;
+    }
+    .text-justify {
+        text-align: justify;
+    }
+</style>
+{% endblock %} 

@@ -7,8 +7,8 @@ from django.core.files.storage import default_storage
 from django.http import JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.db.models import Q
-from .models import PDFDocument, WordEntry, Flashcard
-from .tasks import start_translation
+from .models import PDFDocument, WordEntry, Flashcard, VideoDocument
+from .tasks import start_translation, start_transcription
 from PyPDF2 import PdfReader
 import io
 import re
@@ -246,18 +246,6 @@ def flashcard_review(request, pk=None):
             flashcard.review_count = max(0, flashcard.review_count - 1)
         flashcard.save()
         
-        # Show appropriate message
-        if remembered:
-            messages.success(
-                request,
-                f'Great job! Next review in {flashcard.get_next_review_description()}.'
-            )
-        else:
-            messages.info(
-                request,
-                'Keep practicing! This card will be reviewed again soon.'
-            )
-        
         # Find the next card to review
         next_card = Flashcard.objects.filter(
             user=request.user,
@@ -267,10 +255,6 @@ def flashcard_review(request, pk=None):
         if next_card:
             return redirect('flashcard_review', pk=next_card.pk)
         else:
-            messages.success(
-                request,
-                "Congratulations! You've completed all reviews for now."
-            )
             return redirect('flashcard_list')
     
     # GET request - show the next card
@@ -446,3 +430,140 @@ def sse_progress(request, document_id):
     response['X-Accel-Buffering'] = 'no'
     response['Connection'] = 'keep-alive'
     return response
+
+@login_required
+def view_translation(request, pk):
+    """Display the translated version of a document."""
+    document = get_object_or_404(PDFDocument, pk=pk, user=request.user)
+    
+    # Get all words with their translations, ordered by page and position
+    words = WordEntry.objects.filter(
+        document=document
+    ).order_by('page_number', 'position')
+    
+    # Group words by page
+    pages = {}
+    current_page = []
+    current_page_num = 1
+    
+    for word in words:
+        if word.page_number != current_page_num:
+            if current_page:
+                pages[current_page_num] = ' '.join(
+                    w.translated_text or w.original_text for w in current_page
+                )
+            current_page = []
+            current_page_num = word.page_number
+        current_page.append(word)
+    
+    # Don't forget the last page
+    if current_page:
+        pages[current_page_num] = ' '.join(
+            w.translated_text or w.original_text for w in current_page
+        )
+    
+    context = {
+        'document': document,
+        'pages': pages,
+        'translation_complete': document.translation_status == 'completed'
+    }
+    return render(request, 'pdftranslate/view_translation.html', context)
+
+@login_required
+def upload_video(request):
+    if request.method == 'POST':
+        if 'video_file' not in request.FILES:
+            messages.error(request, 'No video file was uploaded.')
+            return redirect('upload_video')
+        
+        video_file = request.FILES['video_file']
+        target_language = request.POST.get('target_language', 'ru')
+        
+        # Check if it's a valid video file
+        allowed_extensions = ['mp4', 'avi', 'mov', 'mkv']
+        if not any(video_file.name.lower().endswith(ext) for ext in allowed_extensions):
+            messages.error(request, 'Please upload a valid video file (mp4, avi, mov, mkv).')
+            return redirect('upload_video')
+        
+        try:
+            # Create VideoDocument instance
+            document = VideoDocument.objects.create(
+                user=request.user,
+                title=video_file.name,
+                target_language=target_language,
+                transcription_status='pending'
+            )
+            
+            # Save the file using default storage
+            file_name = default_storage.save(
+                f'videos/{request.user.id}/{document.id}/{video_file.name}',
+                video_file
+            )
+            document.video_file.name = file_name
+            document.save()
+            
+            # Start transcription in background
+            start_transcription.delay(document.id)
+            
+            messages.success(
+                request,
+                'Video uploaded successfully. Transcription in progress...'
+            )
+            
+        except Exception as e:
+            messages.error(
+                request,
+                'An unexpected error occurred. Please try again.'
+            )
+            logger.error(f"Error processing video {video_file.name}: {str(e)}")
+        
+        return redirect('video_list')
+    
+    # For GET requests, pass language choices to the template
+    context = {
+        'language_choices': VideoDocument.LANGUAGE_CHOICES
+    }
+    return render(request, 'pdftranslate/upload_video.html', context)
+
+@login_required
+def video_list(request):
+    videos = VideoDocument.objects.filter(user=request.user).order_by('-uploaded_at')
+    context = {'videos': videos}
+    return render(request, 'pdftranslate/video_list.html', context)
+
+@login_required
+def video_detail(request, pk):
+    video = get_object_or_404(VideoDocument, pk=pk, user=request.user)
+    context = {'video': video}
+    return render(request, 'pdftranslate/video_detail.html', context)
+
+@login_required
+def delete_video(request, pk):
+    video = get_object_or_404(VideoDocument, pk=pk, user=request.user)
+    try:
+        video.delete()
+        messages.success(request, f'"{video.title}" has been deleted.')
+    except Exception as e:
+        logger.error(f"Error deleting video {video.title}: {str(e)}")
+        messages.error(request, 'Error deleting the video file.')
+    return redirect('video_list')
+
+@login_required
+def get_transcription_progress(request, pk):
+    """AJAX endpoint to get transcription progress."""
+    try:
+        video = VideoDocument.objects.get(pk=pk, user=request.user)
+        return JsonResponse({
+            'status': video.transcription_status,
+            'progress': video.transcription_progress,
+            'processed_duration': video.processed_duration,
+            'duration': video.duration
+        })
+    except VideoDocument.DoesNotExist:
+        return JsonResponse({'error': 'Video not found'}, status=404)
+    except Exception as e:
+        logger.error(f"Error getting progress: {str(e)}")
+        return JsonResponse(
+            {'error': 'Failed to get progress'},
+            status=500
+        )

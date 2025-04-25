@@ -10,15 +10,35 @@ from django.db import transaction
 import time
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from .transcription_service import TranscriptionService
+from moviepy.editor import VideoFileClip
+from celery import shared_task
 
 logger = logging.getLogger(__name__)
 channel_layer = get_channel_layer()
 
 
 def clean_text(text):
-    """Clean and split text into words."""
-    words = re.findall(r'\b\w+\b', text.lower())
-    return [w for w in words if len(w) > 1]
+    """Clean and split text into words.
+    
+    Filters out:
+    - Numbers and special characters
+    - Words shorter than 3 characters
+    - Common stop words
+    - Non-alphabetic strings
+    """
+    # Convert to lowercase and split into words
+    words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
+    
+    # Filter words
+    filtered_words = []
+    for word in words:
+        if (len(word) >= 3 and  # Remove short words
+            word.isalpha() and  # Only keep alphabetic words
+            not any(c.isdigit() for c in word)):  # Remove words with numbers
+            filtered_words.append(word)
+    
+    return filtered_words
 
 
 def send_progress_update(document_id, progress, translated_words, total_words):
@@ -203,4 +223,47 @@ def start_translation(document_id):
     """Start the translation process in a background thread."""
     task = TranslationTask(document_id)
     task.start()
-    return task 
+    return task
+
+
+@shared_task
+def start_transcription(video_id):
+    """Process video transcription in the background."""
+    video = None
+    try:
+        video = VideoDocument.objects.select_for_update().get(id=video_id)
+        
+        # Update status to processing
+        video.transcription_status = 'processing'
+        video.save()
+        
+        # Get video duration
+        video_clip = VideoFileClip(video.video_file.path)
+        video.duration = video_clip.duration
+        video.save()
+        video_clip.close()
+        
+        # Initialize transcription service
+        transcription_service = TranscriptionService()
+        
+        # Process the video
+        transcribed_text = transcription_service.process_video(
+            video.video_file.path,
+            video.target_language
+        )
+        
+        # Update video document with transcribed text
+        video.extracted_text = transcribed_text
+        video.transcription_status = 'completed'
+        video.transcription_progress = 100
+        video.processed_duration = video.duration
+        video.save()
+        
+        logger.info(f"Video {video_id} transcription completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Error transcribing video {video_id}: {str(e)}")
+        if video:
+            video.transcription_status = 'failed'
+            video.save()
+        raise 

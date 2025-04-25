@@ -5,6 +5,9 @@ from datetime import timedelta
 import math
 from django.db.models import Count
 import re
+from django.core.validators import FileExtensionValidator
+from django.urls import reverse
+import os
 
 
 class PDFDocument(models.Model):
@@ -305,3 +308,73 @@ class Flashcard(models.Model):
         self.review_count = 0
         self.interval = 'good'  # Reset to standard interval
         self.save()
+
+
+class VideoDocument(models.Model):
+    LANGUAGE_CHOICES = [
+        ('ru', 'Russian'),
+        ('es', 'Spanish'),
+        ('fr', 'French'),
+        ('de', 'German'),
+        ('it', 'Italian'),
+        ('pt', 'Portuguese'),
+        ('nl', 'Dutch'),
+        ('pl', 'Polish'),
+        ('tr', 'Turkish'),
+        ('ar', 'Arabic'),
+        ('hi', 'Hindi'),
+        ('zh', 'Chinese'),
+        ('ja', 'Japanese'),
+        ('ko', 'Korean'),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='video_documents'
+    )
+    title = models.CharField(max_length=255)
+    video_file = models.FileField(
+        upload_to='videos/',
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=['mp4', 'avi', 'mov', 'mkv']
+            )
+        ]
+    )
+    uploaded_at = models.DateTimeField(default=timezone.now)
+    extracted_text = models.TextField(blank=True, null=True)
+    transcription_status = models.CharField(
+        max_length=20,
+        choices=[
+            ('pending', 'Pending'),
+            ('processing', 'Processing'),
+            ('completed', 'Completed'),
+            ('failed', 'Failed')
+        ],
+        default='pending'
+    )
+    target_language = models.CharField(
+        max_length=5,
+        choices=LANGUAGE_CHOICES,
+        default='ru'
+    )
+    duration = models.FloatField(null=True, blank=True)
+    processed_duration = models.FloatField(default=0)
+    transcription_progress = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.title}"
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def get_absolute_url(self):
+        return reverse('video_detail', args=[str(self.id)])
+
+    def delete(self, *args, **kwargs):
+        # Delete the actual file when the model instance is deleted
+        if self.video_file:
+            if os.path.isfile(self.video_file.path):
+                os.remove(self.video_file.path)
+        super().delete(*args, **kwargs)

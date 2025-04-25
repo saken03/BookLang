@@ -3,39 +3,42 @@
 {% block title %}Review Flashcards - {{ block.super }}{% endblock %}
 
 {% block content %}
-<div class="container py-4">
+<div class="container py-5">
     <!-- Progress Bar -->
-    <div class="progress mb-4" style="height: 2px;">
-        <div class="progress-bar" role="progressbar" 
+    <div class="progress mb-5" style="height: 4px; background-color: #f0f0f0;">
+        <div class="progress-bar bg-success" role="progressbar" 
              style="width: {% widthratio reviewed_today total_due 100 %}%">
         </div>
     </div>
 
     <!-- Flashcard -->
-    <div class="card shadow-sm">
+    <div class="card border-0 shadow-lg rounded-4 mx-auto" style="max-width: 700px;">
         <div class="card-body p-5">
             <!-- Original Word -->
-            <div class="text-center mb-4">
-                <h1 class="display-4 mb-2">{{ flashcard.word_entry.original_text }}</h1>
+            <div class="text-center mb-5">
+                <h1 class="display-3 mb-4 fw-bold" style="color: #2c3e50;">
+                    {{ flashcard.word_entry.original_text }}
+                </h1>
                 {% if flashcard.word_entry.translated_text %}
-                    <div id="translation" style="display: none;">
-                        <h2 class="text-success mb-2">[{{ flashcard.word_entry.translated_text }}]</h2>
-                        <button onclick="playTranslation('{{ flashcard.word_entry.translated_text }}')" class="btn btn-link">
-                            <i class="bi bi-volume-up"></i>
-                        </button>
+                    <div id="translation" style="display: none;" class="translation-reveal">
+                        <div class="translation-container mb-4">
+                            <div class="translation-box">
+                                <h2 class="translation-text">
+                                    {{ flashcard.word_entry.translated_text }}
+                                </h2>
+                            </div>
+                        </div>
                     </div>
                 {% endif %}
             </div>
 
-            <!-- Source Info -->
-            <p class="text-muted text-center small mb-4">
-                From: {{ flashcard.word_entry.document.title }} (Page {{ flashcard.word_entry.page_number }})
-            </p>
-
             <!-- Show Answer Button -->
-            <div class="text-center mb-4">
-                <button onclick="showAnswer()" class="btn btn-primary btn-lg px-5" id="showAnswerBtn">
-                    Show Answer
+            <div class="text-center mb-5">
+                <button onclick="showAnswer()" 
+                        class="btn btn-primary btn-lg px-5 py-3 rounded-pill shadow-sm" 
+                        id="showAnswerBtn"
+                        style="min-width: 200px; background: #2c3e50; border: none;">
+                    <span class="fw-bold">Show Answer</span>
                 </button>
             </div>
 
@@ -44,25 +47,33 @@
                 {% csrf_token %}
                 <input type="hidden" name="flashcard_id" value="{{ flashcard.pk }}">
                 
-                <div class="d-flex justify-content-center gap-2">
-                    <button type="submit" name="interval" value="again" class="btn btn-outline-danger" onclick="setRemembered(false)">
-                        <span class="d-block"><10m</span>
-                        <small class="d-block">Again</small>
+                <div class="d-flex justify-content-center gap-3">
+                    <button type="submit" name="interval" value="again" 
+                            class="review-btn btn-outline-danger"
+                            onclick="setRemembered(false)">
+                        <span class="d-block fw-bold">＜10m</span>
+                        <small class="d-block opacity-75">Again</small>
                     </button>
                     
-                    <button type="submit" name="interval" value="hard" class="btn btn-outline-warning" onclick="setRemembered(false)">
-                        <span class="d-block"><15m</span>
-                        <small class="d-block">Hard</small>
+                    <button type="submit" name="interval" value="hard" 
+                            class="review-btn btn-outline-warning"
+                            onclick="setRemembered(false)">
+                        <span class="d-block fw-bold">＜15m</span>
+                        <small class="d-block opacity-75">Hard</small>
                     </button>
                     
-                    <button type="submit" name="interval" value="good" class="btn btn-outline-success" onclick="setRemembered(true)">
-                        <span class="d-block">1d</span>
-                        <small class="d-block">Good</small>
+                    <button type="submit" name="interval" value="good" 
+                            class="review-btn btn-outline-success"
+                            onclick="setRemembered(true)">
+                        <span class="d-block fw-bold">1d</span>
+                        <small class="d-block opacity-75">Good</small>
                     </button>
                     
-                    <button type="submit" name="interval" value="easy" class="btn btn-outline-primary" onclick="setRemembered(true)">
-                        <span class="d-block">2d</span>
-                        <small class="d-block">Easy</small>
+                    <button type="submit" name="interval" value="easy" 
+                            class="review-btn btn-outline-primary"
+                            onclick="setRemembered(true)">
+                        <span class="d-block fw-bold">2d</span>
+                        <small class="d-block opacity-75">Easy</small>
                     </button>
                 </div>
             </form>
@@ -70,10 +81,18 @@
     </div>
 
     <!-- Stats -->
-    <div class="text-center mt-4 text-muted">
-        <span class="me-3">New: {{ total_due }}</span>
-        <span class="me-3">Learning: {{ reviewed_today }}</span>
-        <span>Due: {{ cards_remaining_today }}</span>
+    <div class="text-center mt-5">
+        <div class="d-inline-flex gap-4 px-4 py-2 rounded-pill bg-light shadow-sm">
+            <span class="text-muted">
+                <strong class="text-dark">{{ total_due }}</strong> New
+            </span>
+            <span class="text-muted">
+                <strong class="text-dark">{{ reviewed_today }}</strong> Learning
+            </span>
+            <span class="text-muted">
+                <strong class="text-dark">{{ cards_remaining_today }}</strong> Due
+            </span>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -81,7 +100,9 @@
 {% block extra_js %}
 <script>
 function showAnswer() {
-    document.getElementById('translation').style.display = 'block';
+    const translation = document.getElementById('translation');
+    translation.style.display = 'block';
+    translation.classList.add('fade-in');
     document.getElementById('showAnswerBtn').style.display = 'none';
     document.getElementById('reviewForm').style.display = 'block';
 }
@@ -93,12 +114,6 @@ function setRemembered(remembered) {
     input.name = 'remembered';
     input.value = remembered;
     form.appendChild(input);
-}
-
-function playTranslation(text) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ru-RU';
-    window.speechSynthesis.speak(utterance);
 }
 
 // Keyboard shortcuts
@@ -128,12 +143,130 @@ document.addEventListener('keydown', function(e) {
 </script>
 
 <style>
-.btn-outline-danger:hover { background-color: #dc3545; color: white; }
-.btn-outline-warning:hover { background-color: #ffc107; color: black; }
-.btn-outline-success:hover { background-color: #28a745; color: white; }
-.btn-outline-primary:hover { background-color: #0d6efd; color: white; }
+.translation-reveal {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: all 0.5s ease-out;
+}
 
-.btn span { font-size: 1.2rem; }
-.btn small { font-size: 0.8rem; }
+.translation-reveal.fade-in {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.translation-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.translation-box {
+    background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+    padding: 1.5rem 2.5rem;
+    border-radius: 20px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+    transform: translateY(0);
+    transition: transform 0.2s ease;
+}
+
+.translation-box:hover {
+    transform: translateY(-2px);
+}
+
+.translation-text {
+    color: #2e7d32;
+    font-size: 2.5rem;
+    font-weight: bold;
+    margin: 0;
+    text-shadow: 1px 1px 1px rgba(255, 255, 255, 0.5);
+}
+
+.review-btn {
+    padding: 1rem 1.5rem;
+    min-width: 120px;
+    border-radius: 15px;
+    transition: all 0.2s ease;
+    border: 2px solid;
+    background: white;
+}
+
+.btn-outline-danger {
+    color: #dc3545;
+    border-color: #dc3545;
+}
+
+.btn-outline-warning {
+    color: #ffc107;
+    border-color: #ffc107;
+}
+
+.btn-outline-success {
+    color: #28a745;
+    border-color: #28a745;
+}
+
+.btn-outline-primary {
+    color: #0d6efd;
+    border-color: #0d6efd;
+}
+
+.btn-outline-danger:hover {
+    background-color: #dc3545;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(220, 53, 69, 0.2);
+}
+
+.btn-outline-warning:hover {
+    background-color: #ffc107;
+    color: black;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(255, 193, 7, 0.2);
+}
+
+.btn-outline-success:hover {
+    background-color: #28a745;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.2);
+}
+
+.btn-outline-primary:hover {
+    background-color: #0d6efd;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(13, 110, 253, 0.2);
+}
+
+.btn span {
+    font-size: 1.25rem;
+}
+
+.btn small {
+    font-size: 0.875rem;
+}
+
+@media (max-width: 576px) {
+    .review-btn {
+        padding: 0.75rem 1rem;
+        min-width: 90px;
+    }
+    
+    .btn span {
+        font-size: 1rem;
+    }
+    
+    .btn small {
+        font-size: 0.75rem;
+    }
+    
+    .translation-text {
+        font-size: 2rem;
+    }
+    
+    .translation-box {
+        padding: 1rem 2rem;
+    }
+}
 </style>
 {% endblock %} 
