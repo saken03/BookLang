@@ -10,8 +10,6 @@ from django.db import transaction
 import time
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .transcription_service import TranscriptionService
-from moviepy.editor import VideoFileClip
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
@@ -23,20 +21,20 @@ def clean_text(text):
     
     Filters out:
     - Numbers and special characters
-    - Words shorter than 3 characters
-    - Common stop words
     - Non-alphabetic strings
     """
     # Convert to lowercase and split into words
     words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
     
-    # Filter words
+    # Filter words and remove duplicates while preserving order
     filtered_words = []
+    seen = set()
     for word in words:
-        if (len(word) >= 3 and  # Remove short words
-            word.isalpha() and  # Only keep alphabetic words
-            not any(c.isdigit() for c in word)):  # Remove words with numbers
+        if (word.isalpha() and  # Only keep alphabetic words
+            not any(c.isdigit() for c in word) and  # Remove words with numbers
+            word not in seen):  # Remove duplicates
             filtered_words.append(word)
+            seen.add(word)
     
     return filtered_words
 
@@ -75,8 +73,9 @@ class TranslationTask(threading.Thread):
             # Initialize translation service
             logger.info(f"Initializing translation service for document {self.document_id}")
             try:
-                translation_service = TranslationService()
-                logger.info(f"Translation service initialized successfully")
+                from .google_translate_service import GoogleTranslateService
+                translation_service = GoogleTranslateService()
+                logger.info(f"Google Translation service initialized successfully")
             except Exception as e:
                 logger.error(f"Failed to initialize translation service: {str(e)}")
                 document.translation_status = 'failed'
@@ -96,111 +95,86 @@ class TranslationTask(threading.Thread):
                 send_progress_update(self.document_id, 0, 0, 0)
                 return
             
-            # First pass: count total words
-            logger.info(f"Counting words in document {self.document_id}")
-            total_words = 0
-            words_by_page = []
+            # Extract all words and remember first page/position for each unique word
+            all_words = []
+            word_first_location = {}
+            extracted_text = []
             for page_num, page in enumerate(pdf_reader.pages, 1):
                 try:
                     text = page.extract_text()
-                    page_words = clean_text(text)
-                    words_by_page.append(page_words)
-                    total_words += len(page_words)
-                    logger.info(f"Page {page_num}: Found {len(page_words)} words")
+                    extracted_text.append(text)
+                    words = clean_text(text)
+                    for pos, word in enumerate(words):
+                        if word not in word_first_location:
+                            word_first_location[word] = (page_num, pos)
+                            all_words.append(word)
                 except Exception as e:
                     logger.error(f"Error extracting text from page {page_num}: {str(e)}")
             
-            if total_words == 0:
+            if not all_words:
                 logger.error(f"No words found in document {self.document_id}")
                 document.translation_status = 'failed'
                 document.save()
                 send_progress_update(self.document_id, 0, 0, 0)
                 return
-                
-            document.total_words = total_words
+            
+            document.total_words = len(all_words)
             document.save()
-            logger.info(f"Total words in document: {total_words}")
+            logger.info(f"Total unique words in document: {len(all_words)}")
             
-            # Second pass: translate words with progress updates
+            # Translate unique words
             translated_words = 0
-            extracted_text = []
-            
-            # Configuration for batch processing
-            BATCH_SIZE = 50  # Increased from 5 to 50
-            word_entries = []  # Collect entries for bulk creation
-            
-            for page_num, words in enumerate(words_by_page, 1):
-                text = pdf_reader.pages[page_num - 1].extract_text()
-                extracted_text.append(text)
-                
-                if words:
-                    # Process in larger batches
-                    for i in range(0, len(words), BATCH_SIZE):
-                        batch = words[i:i + BATCH_SIZE]
-                        logger.info(
-                            f"Translating batch of {len(batch)} words from page {page_num}"
-                        )
-                        
-                        try:
-                            translations = translation_service.batch_translate(
-                                batch,
-                                target_lang=document.target_language
+            BATCH_SIZE = 100
+            word_entries = []
+            for i in range(0, len(all_words), BATCH_SIZE):
+                batch = all_words[i:i+BATCH_SIZE]
+                try:
+                    translations = [translation_service.translate_word(word, target_language=document.target_language) for word in batch]
+                    logger.info(f"Successfully translated batch: {translations}")
+                    for word, trans in zip(batch, translations):
+                        if trans:
+                            page_num, pos = word_first_location[word]
+                            word_entries.append(
+                                WordEntry(
+                                    document=document,
+                                    original_text=word,
+                                    translated_text=trans,
+                                    page_number=page_num,
+                                    position=pos
+                                )
                             )
-                            logger.info(f"Successfully translated batch: {translations}")
-                            
-                            # Create WordEntry instances for this batch
-                            for pos, (word, trans) in enumerate(zip(batch, translations), start=i):
-                                if trans:
-                                    word_entries.append(
-                                        WordEntry(
-                                            document=document,
-                                            original_text=word,
-                                            translated_text=trans,
-                                            page_number=page_num,
-                                            position=pos
-                                        )
-                                    )
-                                    translated_words += 1
-                            
-                            # Update progress and send update
-                            progress = int((translated_words / total_words) * 100)
-                            document.translation_progress = min(progress, 99)
-                            document.translated_words = translated_words
-                            document.save()
-                            send_progress_update(
-                                self.document_id,
-                                document.translation_progress,
-                                translated_words,
-                                total_words
-                            )
-                            
-                            # Bulk create entries periodically
-                            if len(word_entries) >= BATCH_SIZE * 5:
-                                WordEntry.objects.bulk_create(word_entries)
-                                word_entries = []
-                            
-                        except Exception as e:
-                            logger.error(f"Error translating batch: {str(e)}")
-                            logger.error(traceback.format_exc())
-            
+                            translated_words += 1
+                    # Bulk create entries periodically
+                    if len(word_entries) >= BATCH_SIZE * 2:
+                        WordEntry.objects.bulk_create(word_entries)
+                        word_entries = []
+                    # Update progress and send update
+                    progress = int((translated_words / len(all_words)) * 100)
+                    document.translation_progress = min(progress, 99)
+                    document.translated_words = translated_words
+                    document.save()
+                    send_progress_update(
+                        self.document_id,
+                        document.translation_progress,
+                        translated_words,
+                        len(all_words)
+                    )
+                except Exception as e:
+                    logger.error(f"Error translating batch: {str(e)}")
+                    logger.error(traceback.format_exc())
             # Create any remaining word entries
             if word_entries:
                 WordEntry.objects.bulk_create(word_entries)
-            
             # Save the complete extracted text
             document.extracted_text = '\n'.join(extracted_text)
-            
             # Update final status and progress
             document.translation_status = 'completed'
             document.translation_progress = 100
             document.translated_words = translated_words
             document.save()
-            
             # Send final progress update
-            send_progress_update(self.document_id, 100, translated_words, total_words)
-            
+            send_progress_update(self.document_id, 100, translated_words, len(all_words))
             logger.info(f"Translation completed for document {self.document_id}")
-            
         except Exception as e:
             error_message = f"Translation task error for document {self.document_id}: {str(e)}"
             logger.error(error_message)
@@ -223,47 +197,4 @@ def start_translation(document_id):
     """Start the translation process in a background thread."""
     task = TranslationTask(document_id)
     task.start()
-    return task
-
-
-@shared_task
-def start_transcription(video_id):
-    """Process video transcription in the background."""
-    video = None
-    try:
-        video = VideoDocument.objects.select_for_update().get(id=video_id)
-        
-        # Update status to processing
-        video.transcription_status = 'processing'
-        video.save()
-        
-        # Get video duration
-        video_clip = VideoFileClip(video.video_file.path)
-        video.duration = video_clip.duration
-        video.save()
-        video_clip.close()
-        
-        # Initialize transcription service
-        transcription_service = TranscriptionService()
-        
-        # Process the video
-        transcribed_text = transcription_service.process_video(
-            video.video_file.path,
-            video.target_language
-        )
-        
-        # Update video document with transcribed text
-        video.extracted_text = transcribed_text
-        video.transcription_status = 'completed'
-        video.transcription_progress = 100
-        video.processed_duration = video.duration
-        video.save()
-        
-        logger.info(f"Video {video_id} transcription completed successfully")
-        
-    except Exception as e:
-        logger.error(f"Error transcribing video {video_id}: {str(e)}")
-        if video:
-            video.transcription_status = 'failed'
-            video.save()
-        raise 
+    return task 

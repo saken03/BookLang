@@ -1,4 +1,5 @@
 {% extends 'pdftranslate/base.html' %}
+{% load flashcard_filters %}
 
 {% block title %}Flashcards - {{ block.super }}{% endblock %}
 
@@ -7,12 +8,14 @@
     <!-- Header with Actions -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1 class="mb-0">Flashcards</h1>
-            <p class="text-muted mb-0">You have {{ cards_due }} cards due for review.</p>
+            <h1 class="mb-2">Flashcards</h1>
+            <p class="text-muted mb-0">Master your vocabulary with spaced repetition</p>
         </div>
         <div>
             {% if cards_due > 0 %}
-                <a href="{% url 'flashcard_review_base' %}" class="btn btn-primary me-2">Start Review</a>
+                <a href="{% url 'flashcard_review_base' %}" class="btn btn-primary me-2">
+                    <i class="bi bi-play-circle"></i> Start Review
+                </a>
             {% endif %}
             <a href="{% url 'upload_pdf' %}" class="btn btn-success">
                 <i class="bi bi-upload"></i> Upload Document
@@ -20,52 +23,274 @@
         </div>
     </div>
 
-    <!-- Basic Stats -->
-    <div class="row mb-4">
-        <div class="col-md-4">
-            <p>Total Cards: {{ total_cards }}</p>
-        </div>
-        <div class="col-md-4">
-            <p>Cards Learned: {{ cards_learned }}</p>
-        </div>
-        <div class="col-md-4">
-            <p>Due for Review: {{ cards_due }}</p>
-        </div>
-    </div>
-
-    <!-- Flashcards List -->
-    {% if flashcards %}
-        <div class="card">
-            <div class="card-body">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>English</th>
-                                <th>Russian</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for card in flashcards %}
-                            <tr>
-                                <td>{{ card.word_entry.original_text }}</td>
-                                <td>{{ card.word_entry.translated_text }}</td>
-                                <td>
-                                    <a href="{% url 'flashcard_review' card.pk %}" class="btn btn-sm btn-primary">Review</a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+    <!-- Document Selector -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h5 class="card-title mb-0">Select a Book</h5>
+                </div>
+                <div class="col-md-4">
+                    <select class="form-select" id="documentSelector" onchange="window.location.href='?document_id=' + this.value">
+                        {% for doc in documents %}
+                            <option value="{{ doc.id }}" {% if doc.id|stringformat:"s" == selected_document_id|stringformat:"s" %}selected{% endif %}>
+                                {{ doc.title }}
+                            </option>
+                        {% endfor %}
+                    </select>
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-0">Total Cards</h6>
+                            <h2 class="mt-2 mb-0">{{ total_cards }}</h2>
+                        </div>
+                        <i class="bi bi-collection fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-0">Cards Learned</h6>
+                            <h2 class="mt-2 mb-0">{{ cards_learned }}</h2>
+                        </div>
+                        <i class="bi bi-check-circle fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-0">Due Today</h6>
+                            <h2 class="mt-2 mb-0">{{ cards_due }}</h2>
+                        </div>
+                        <i class="bi bi-clock fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="card-title mb-0">Mastered</h6>
+                            <h2 class="mt-2 mb-0">{{ cards_mastered }}</h2>
+                        </div>
+                        <i class="bi bi-trophy fs-1 opacity-50"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search and Filter -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search flashcards...">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="filterStatus">
+                        <option value="all">All Cards</option>
+                        <option value="due">Due Today</option>
+                        <option value="learned">Learned</option>
+                        <option value="mastered">Mastered</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select" id="sortBy">
+                        <option value="due">Sort by Due Date</option>
+                        <option value="recent">Sort by Recently Added</option>
+                        <option value="progress">Sort by Progress</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Flashcards Grid -->
+    {% if flashcards %}
+        <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4" id="flashcardsGrid">
+            {% for card in flashcards %}
+            <div class="col">
+                <div class="card h-100 flashcard-item">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-3">
+                            <div>
+                                <h5 class="card-title mb-1">{{ card.word_entry.original_text }}</h5>
+                                <p class="text-muted mb-0">{{ card.word_entry.translated_text }}</p>
+                            </div>
+                            <div class="dropdown">
+                                <button class="btn btn-link text-dark" type="button" data-bs-toggle="dropdown">
+                                    <i class="bi bi-three-dots-vertical"></i>
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li><a class="dropdown-item" href="{% url 'flashcard_review' card.pk %}">Review Now</a></li>
+                                    <li><a class="dropdown-item" href="#">Mark as Learned</a></li>
+                                    <li><a class="dropdown-item" href="#">Reset Progress</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="progress mb-3" style="height: 5px;">
+                            <div class="progress-bar bg-success" role="progressbar" 
+                                 style="width: {{ card.progress }}%"
+                                 aria-valuenow="{{ card.progress }}" 
+                                 aria-valuemin="0" 
+                                 aria-valuemax="100"></div>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">
+                                {% if card.next_review %}
+                                    Due: {{ card.next_review|date:"M d" }}
+                                {% else %}
+                                    Not scheduled
+                                {% endif %}
+                            </small>
+                            <span class="badge bg-primary rounded-pill">
+                                {{ card.review_count|default:0 }}/5 reviews
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Pagination -->
+        {% if page_obj.paginator.num_pages > 1 %}
+        <nav aria-label="Flashcard pagination" class="mt-4">
+            <ul class="pagination justify-content-center">
+                {% if page_obj.has_previous %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page=1&document_id={{ selected_document_id }}" aria-label="First">
+                            <span aria-hidden="true">&laquo;&laquo;</span>
+                        </a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.previous_page_number }}&document_id={{ selected_document_id }}" aria-label="Previous">
+                            <span aria-hidden="true">&laquo;</span>
+                        </a>
+                    </li>
+                {% endif %}
+
+                {% for num in page_obj.paginator.page_range %}
+                    {% if page_obj.number == num %}
+                        <li class="page-item active">
+                            <span class="page-link">{{ num }}</span>
+                        </li>
+                    {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                        <li class="page-item">
+                            <a class="page-link" href="?page={{ num }}&document_id={{ selected_document_id }}">{{ num }}</a>
+                        </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.next_page_number }}&document_id={{ selected_document_id }}" aria-label="Next">
+                            <span aria-hidden="true">&raquo;</span>
+                        </a>
+                    </li>
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_obj.paginator.num_pages }}&document_id={{ selected_document_id }}" aria-label="Last">
+                            <span aria-hidden="true">&raquo;&raquo;</span>
+                        </a>
+                    </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
     {% else %}
         <div class="text-center py-5">
-            <p class="text-muted mb-3">No flashcards available for review.</p>
-            <p class="mb-0">Get started by uploading a document to create flashcards.</p>
+            <div class="mb-4">
+                <i class="bi bi-journal-text display-1 text-muted"></i>
+            </div>
+            <h3 class="mb-3">No Flashcards Yet</h3>
+            <p class="text-muted mb-4">Get started by uploading a document to create your first set of flashcards.</p>
+            <a href="{% url 'upload_pdf' %}" class="btn btn-primary">
+                <i class="bi bi-upload"></i> Upload Your First Document
+            </a>
         </div>
     {% endif %}
 </div>
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const filterStatus = document.getElementById('filterStatus');
+    const sortBy = document.getElementById('sortBy');
+    const flashcardsGrid = document.getElementById('flashcardsGrid');
+
+    function filterAndSortCards() {
+        const searchTerm = searchInput.value.toLowerCase();
+        const statusFilter = filterStatus.value;
+        const sortValue = sortBy.value;
+
+        const cards = Array.from(flashcardsGrid.getElementsByClassName('flashcard-item'));
+        
+        cards.forEach(card => {
+            const englishText = card.querySelector('.card-title').textContent.toLowerCase();
+            const russianText = card.querySelector('.text-muted').textContent.toLowerCase();
+            const progress = parseInt(card.querySelector('.progress-bar').style.width);
+            const dueDate = card.querySelector('small').textContent;
+            
+            const matchesSearch = englishText.includes(searchTerm) || russianText.includes(searchTerm);
+            const matchesStatus = statusFilter === 'all' || 
+                                (statusFilter === 'due' && dueDate.includes('Due')) ||
+                                (statusFilter === 'learned' && progress > 0) ||
+                                (statusFilter === 'mastered' && progress >= 100);
+            
+            card.closest('.col').style.display = matchesSearch && matchesStatus ? 'block' : 'none';
+        });
+
+        // Sort cards
+        const sortedCards = cards.sort((a, b) => {
+            if (sortValue === 'due') {
+                const dateA = new Date(a.querySelector('small').textContent.split(': ')[1]);
+                const dateB = new Date(b.querySelector('small').textContent.split(': ')[1]);
+                return dateA - dateB;
+            } else if (sortValue === 'recent') {
+                // Implement recent sorting if needed
+                return 0;
+            } else if (sortValue === 'progress') {
+                const progressA = parseInt(a.querySelector('.progress-bar').style.width);
+                const progressB = parseInt(b.querySelector('.progress-bar').style.width);
+                return progressB - progressA;
+            }
+            return 0;
+        });
+
+        // Reorder cards in the grid
+        sortedCards.forEach(card => {
+            flashcardsGrid.appendChild(card.closest('.col'));
+        });
+    }
+
+    searchInput.addEventListener('input', filterAndSortCards);
+    filterStatus.addEventListener('change', filterAndSortCards);
+    sortBy.addEventListener('change', filterAndSortCards);
+});
+</script>
+{% endblock %}
 {% endblock %} 

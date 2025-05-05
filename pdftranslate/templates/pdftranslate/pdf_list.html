@@ -48,16 +48,19 @@
                             {% endif %}
                             
                             <div class="btn-group">
+                                <a href="{% url 'translated_words_list' document.id %}" 
+                                   class="btn btn-secondary">
+                                    View Translated Words
+                                </a>
                                 {% if document.translation_status == 'completed' %}
-                                    <a href="{% url 'view_translation' document.id %}" 
-                                       class="btn btn-success">
-                                        View Translation
-                                    </a>
                                     <a href="{% url 'create_flashcards' document.id %}" 
                                        class="btn btn-info">
                                         Create Flashcards
                                     </a>
                                 {% endif %}
+                                <a href="{% url 'flashcard_list' %}?document_id={{ document.id }}" class="btn btn-primary">
+                                    Review Flashcards
+                                </a>
                                 <form method="post" 
                                       action="{% url 'delete_pdf' document.id %}"
                                       onsubmit="return confirm('Are you sure you want to delete this document?');"

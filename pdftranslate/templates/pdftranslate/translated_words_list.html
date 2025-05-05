@@ -1,0 +1,29 @@
+{% extends 'pdftranslate/base.html' %}
+{% block title %}Translated Words - {{ document.title }}{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <h2>Translated Words for "{{ document.title }}"</h2>
+    {% if document.translation_status != 'completed' %}
+        <div class="alert alert-info">
+            Translation is still in progress. You can see words as they are translated.<br>
+            Progress: {{ document.translated_words }} / {{ document.total_words }}
+        </div>
+    {% endif %}
+    <table class="table table-striped mt-4">
+        <thead>
+            <tr>
+                <th>Original</th>
+                <th>Translation</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for word in words %}
+            <tr>
+                <td>{{ word.original_text }}</td>
+                <td>{{ word.translated_text }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

@@ -29,14 +29,13 @@ class TranslationService:
     def batch_translate(self, texts, source_lang='en', target_lang='ru'):
         """
         Translate a batch of texts using OpenAI's API with optimized batching
-        and caching. Only translates valid words (3+ characters, alphabetic).
+        and caching. Only translates valid words (alphabetic).
         """
         try:
             # Filter out invalid words
             valid_texts = [
                 text for text in texts
-                if text and isinstance(text, str) and
-                len(text) >= 3 and text.isalpha()
+                if text and isinstance(text, str) and text.isalpha()
             ]
             
             if not valid_texts:
@@ -58,8 +57,7 @@ class TranslationService:
                 result = []
                 valid_idx = 0
                 for text in texts:
-                    if (text and isinstance(text, str) and
-                            len(text) >= 3 and text.isalpha()):
+                    if (text and isinstance(text, str) and text.isalpha()):
                         result.append(cached[valid_idx])
                         valid_idx += 1
                     else:
@@ -108,8 +106,7 @@ class TranslationService:
                 result = []
                 valid_idx = 0
                 for text in texts:
-                    if (text and isinstance(text, str) and
-                            len(text) >= 3 and text.isalpha()):
+                    if (text and isinstance(text, str) and text.isalpha()):
                         result.append(translations[valid_idx])
                         valid_idx += 1
                     else:
